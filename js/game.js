@@ -1,5 +1,5 @@
 import {
-  DEG, clamp, dampAngle, dist2, identity, pointBlocked, createRenderer, resolveCircle,
+  DEG, clamp, dampAngle, dist2, identity, pointBlocked, createRenderer, resolveCircle, wrapAngle,
 } from "./engine.js";
 import { createLibrary, drawCar, drawHeli, drawPerson, drawProp, drawScooter, prepareFrame } from "./models.js";
 import { createWorld, groundY as worldGround, highwayTFromZ, inZone, waterEdgeX, RACE_POINTS } from "./world.js";
@@ -21,6 +21,9 @@ let board = null;
 let mode = "title";
 let titleTime = 9 * 3600;
 let camYaw = Math.PI;
+let lookId = null;
+let lookX = 0;
+let lookHold = 0;
 let speedV = 0;
 let gameSpeed = 0;
 let lean = 0;
@@ -85,6 +88,7 @@ function boot() {
       get heli() { return !!(sim && sim.heli); },
       get blocks() { return sim ? sim.roadblocks.length : 0; },
       get scene() { return sceneName(); },
+      get cameraYaw() { return camYaw; },
       get cops() { return sim ? sim.police.map((c) => ({ x: c.x, z: c.z, kind: c.kind })) : []; },
     };
     requestAnimationFrame(frame);
@@ -132,7 +136,7 @@ function beginPlaying(next, banner) {
   if (banner) {
     bannerUntil = performance.now() + 7000;
     $("banner").hidden = false;
-    $("banner").textContent = "WASD 移動，E 互動，F 上下車。手機用左下搖桿與右側大按鈕。目標會一直寫在畫面上。";
+    $("banner").textContent = "WASD 移動，E 互動，F 上下車。手機用左下搖桿移動，在畫面上左右滑動轉視角。";
   }
   audio.resume();
   audio.setScene(sceneName(), true);
@@ -211,6 +215,28 @@ function bindInput() {
   hold($("btn-accel"), (v) => { input.accel = v; });
   $("btn-interact").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.interactQueued = true; });
   $("btn-vehicle").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.vehicleQueued = true; });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (mode !== "playing" || (e.button != null && e.button !== 0)) return;
+    lookId = e.pointerId;
+    lookX = e.clientX;
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* already released */ }
+    audio.resume();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== lookId) return;
+    const dx = e.clientX - lookX;
+    lookX = e.clientX;
+    if (Math.abs(dx) < 0.4) return;
+    camYaw = wrapAngle(camYaw - dx * 0.0075);
+    lookHold = 0.85;
+  });
+  const endLook = (e) => {
+    if (e.pointerId !== lookId) return;
+    lookId = null;
+  };
+  canvas.addEventListener("pointerup", endLook);
+  canvas.addEventListener("pointercancel", endLook);
 
   $("btn-new").addEventListener("click", () => { audio.resume(); beginPlaying(newGame(), true); });
   $("btn-continue").addEventListener("click", () => {
@@ -638,8 +664,8 @@ function updatePlayer(dt) {
     if (mag > 0.12) {
       const fx = Math.sin(camYaw);
       const fz = Math.cos(camYaw);
-      const rx = Math.cos(camYaw);
-      const rz = -Math.sin(camYaw);
+      const rx = -Math.cos(camYaw);
+      const rz = Math.sin(camYaw);
       let mx = rx * nx + fx * nz;
       let mz = rz * nx + fz * nz;
       const len = Math.hypot(mx, mz) || 1;
@@ -665,8 +691,8 @@ function updatePlayer(dt) {
     else if (nz < -0.35 || keys.KeyS || keys.ArrowDown) speedV = Math.max(-6, speedV - accel * dt);
     else speedV *= Math.exp(-1.35 * dt);
     const turnRate = (riding === "car" ? 1.5 : 2.2) * clamp(Math.abs(speedV) / 8, 0.28, 1);
-    state.yaw += nx * turnRate * dt * (speedV < 0 ? -1 : 1);
-    lean = clamp(-nx * 0.28, -0.3, 0.3);
+    state.yaw -= nx * turnRate * dt * (speedV < 0 ? -1 : 1);
+    lean = clamp(nx * 0.28, -0.3, 0.3);
     state.x += Math.sin(state.yaw) * speedV * dt;
     state.z += Math.cos(state.yaw) * speedV * dt;
     wheelSpin += speedV * dt / 0.32;
@@ -696,7 +722,12 @@ function updatePlayer(dt) {
     input.vehicleQueued = false;
     toggleVehicle();
   }
-  camYaw = dampAngle(camYaw, state.yaw, riding ? 3.4 : 5, dt);
+  if (lookId != null) lookHold = 0.85;
+  else lookHold = Math.max(0, lookHold - dt);
+  const steering = Math.abs(nx) > 0.2;
+  if (riding && lookId == null && lookHold <= 0 && !steering) {
+    camYaw = dampAngle(camYaw, state.yaw, 1.5, dt);
+  }
 }
 
 function limitWorld(x, z) {
