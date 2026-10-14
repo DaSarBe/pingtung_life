@@ -106,7 +106,8 @@ export function createLibrary(renderer) {
   });
   lib.shadow = mesh(renderer, (b) => b.disc(0, 0, 0, 1, 12, hex(0x14120f), 0, 0));
   lib.chevron = mesh(renderer, (b) => {
-    b.cone(0, 0.4, 0, 0.45, 0.9, 4, hex(0xffd15c), 2, 0);
+    b.cone(0, 0.55, 0, 0.7, 1.35, 4, hex(0xffb703), 2, 0);
+    b.cone(0, 1.35, 0, 0.42, 0.7, 4, hex(0xffe08a), 2, 0);
   });
   lib.arch = mesh(renderer, (b) => {
     b.box(-1.6, 1.5, 0, 0.18, 3, 0.18, hex(0xfff1c2), 2, 0);

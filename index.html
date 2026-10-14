@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffb703'/%3E%3C/svg%3E">
   <title>屏東人生</title>
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
   <canvas id="c"></canvas>
@@ -45,12 +45,20 @@
         </div>
       </div>
       <div id="goal">
-        <div id="compass"><span id="compass-arrow">▲</span><span id="compass-dist"></span></div>
+        <div id="compass" aria-label="目標方向">
+          <div id="compass-dial">
+            <div id="compass-arrow"></div>
+            <div id="compass-n">前</div>
+          </div>
+          <span id="compass-bearing">前方</span>
+          <span id="compass-dist"></span>
+        </div>
         <div>
           <div id="goal-title">目標</div>
           <div id="goal-sub"></div>
         </div>
       </div>
+      <div id="guide" hidden aria-hidden="true"><span id="guide-arrow"></span><span id="guide-dist"></span></div>
       <div id="prompt" hidden></div>
       <div id="labels"></div>
       <div id="bubbles"></div>
@@ -139,6 +147,6 @@
 
     <div id="toast" hidden></div>
   </div>
-  <script type="module" src="js/game.js?v=3"></script>
+  <script type="module" src="js/game.js?v=4"></script>
 </body>
 </html>

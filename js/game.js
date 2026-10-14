@@ -89,6 +89,7 @@ function boot() {
       get blocks() { return sim ? sim.roadblocks.length : 0; },
       get scene() { return sceneName(); },
       get cameraYaw() { return camYaw; },
+      setCameraYaw(y) { camYaw = wrapAngle(y); lookHold = 1.2; },
       project(x, y, z) { return renderer.project(x, y, z); },
       get cops() { return sim ? sim.police.map((c) => ({ x: c.x, z: c.z, kind: c.kind })) : []; },
     };
@@ -1016,9 +1017,17 @@ function updateHud() {
   const dx = goal.x - state.x;
   const dz = goal.z - state.z;
   const dist = Math.hypot(dx, dz);
-  const ang = Math.atan2(dx, dz) - camYaw;
-  $("compass-arrow").style.transform = `rotate(${ang}rad)`;
-  $("compass-dist").textContent = dist > 999 ? `${Math.round(dist / 100) / 10} km` : `${Math.round(dist)} 公尺`;
+  // Screen-relative: same right basis as walking / the drawn camera.
+  const fx = Math.sin(camYaw);
+  const fz = Math.cos(camYaw);
+  const rx = -Math.cos(camYaw);
+  const rz = Math.sin(camYaw);
+  const ang = wrapAngle(Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz));
+  const distText = dist > 999 ? `${Math.round(dist / 100) / 10} km` : `${Math.round(dist)} 公尺`;
+  $("compass-arrow").style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
+  $("compass-bearing").textContent = bearingLabel(ang);
+  $("compass-dist").textContent = distText;
+  updateGuide(goal, dist, ang, distText);
   const item = nearestInteract();
   const prompt = $("prompt");
   if (item && mode === "playing") {
@@ -1033,6 +1042,62 @@ function updateHud() {
   $("btn-interact").classList.toggle("ready", !!item);
   drawMinimap();
   if (!$("map").hidden) drawBigMap();
+}
+
+function bearingLabel(ang) {
+  const deg = ((ang * 180) / Math.PI + 360) % 360;
+  if (deg < 22.5 || deg >= 337.5) return "正前方";
+  if (deg < 67.5) return "右前方";
+  if (deg < 112.5) return "正右方";
+  if (deg < 157.5) return "右後方";
+  if (deg < 202.5) return "正後方";
+  if (deg < 247.5) return "左後方";
+  if (deg < 292.5) return "正左方";
+  return "左前方";
+}
+
+function updateGuide(goal, dist, ang, distText) {
+  const el = $("guide");
+  const arrow = $("guide-arrow");
+  const label = $("guide-dist");
+  if (!state || mode !== "playing" || dist < 14) {
+    el.hidden = true;
+    return;
+  }
+  const projected = renderer.project(goal.x, worldGround(goal.x, goal.z) + 2.4, goal.z);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const marginX = 28 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sal")) || 0);
+  const marginY = 120 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0);
+  const bottom = 160 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sab")) || 0);
+  let onScreen = false;
+  let px = w / 2;
+  let py = h / 2;
+  if (projected) {
+    px = projected.x;
+    py = projected.y;
+    onScreen = px > marginX && px < w - marginX && py > marginY && py < h - bottom;
+  }
+  if (onScreen && dist < 55) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  if (!onScreen) {
+    const halfW = w / 2 - marginX;
+    const halfH = (h - marginY - bottom) / 2;
+    const fx = Math.sin(ang);
+    const fy = -Math.cos(ang);
+    const sx = fx === 0 ? Infinity : halfW / Math.abs(fx);
+    const sy = fy === 0 ? Infinity : halfH / Math.abs(fy);
+    const t = Math.min(sx, sy);
+    px = w / 2 + fx * t;
+    py = marginY + (h - marginY - bottom) / 2 + fy * t;
+  }
+  el.style.transform = `translate(${px}px, ${py}px)`;
+  arrow.style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
+  label.textContent = `${bearingLabel(ang)} · ${distText}`;
+  label.style.transform = onScreen ? "translate(-50%, 22px)" : "translate(-50%, 28px)";
 }
 
 function activeGoal() {
@@ -1196,8 +1261,13 @@ function drawActors() {
     if (state.job?.type === "crate") drawProp(renderer, lib.crate, state.x, state.y + 1.1, state.z, state.yaw, 1, null);
   }
   const goal = activeGoal();
-  const gy = worldGround(goal.x, goal.z) + 2.2 + Math.sin(blink * 3) * 0.25;
-  if (dist2(state.x, state.z, goal.x, goal.z) < 220 * 220) drawProp(renderer, lib.chevron, goal.x, gy, goal.z, blink, 1, null);
+  const gDist = dist2(state.x, state.z, goal.x, goal.z);
+  if (gDist < 260 * 260) {
+    const gy = worldGround(goal.x, goal.z) + 2.6 + Math.sin(blink * 4) * 0.35;
+    const face = Math.atan2(state.x - goal.x, state.z - goal.z);
+    drawProp(renderer, lib.chevron, goal.x, gy, goal.z, face, 1.55, null);
+    drawProp(renderer, lib.sphere, goal.x, gy + 1.35, goal.z, 0, 0.55 + Math.sin(blink * 6) * 0.08, [1, 0.78, 0.2]);
+  }
   if (race) {
     const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
     drawProp(renderer, lib.arch, p.x, worldGround(p.x, p.z), p.z, 0, 1, null);
