@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffb703'/%3E%3C/svg%3E">
+  <title>屏東人生</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="rain" aria-hidden="true"></div>
+  <div id="fade"></div>
+  <div id="fatal" hidden></div>
+  <div id="ui">
+    <section id="title">
+      <div class="card title-card">
+        <p class="eyebrow">屏東市 · 開放世界</p>
+        <h1>屏東人生</h1>
+        <p class="tagline">白天可以上班，晚上可以逛夜市。要當店長，或走進虛構的夜路，都由你決定。</p>
+        <button id="btn-new" type="button">開始新遊戲</button>
+        <button id="btn-continue" type="button">繼續遊戲</button>
+        <div class="row">
+          <button id="btn-settings" type="button">設定</button>
+          <button id="btn-help" type="button">操作說明</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="hud" hidden>
+      <div id="top">
+        <div id="stats">
+          <div id="money" class="pill">$0</div>
+          <div id="clock" class="pill">第1天 09:00</div>
+          <div id="stars" class="pill" aria-label="通緝星"></div>
+          <div id="stam" class="pill" aria-label="體力"><span>體力</span><div id="stam-track"><div id="stam-fill"></div></div></div>
+        </div>
+        <div id="top-side">
+          <div id="top-buttons">
+            <button id="btn-mute" type="button" aria-label="靜音">♪</button>
+            <button id="btn-menu" type="button">選單</button>
+          </div>
+          <canvas id="minimap" width="160" height="160" aria-label="小地圖"></canvas>
+        </div>
+      </div>
+      <div id="goal">
+        <div id="compass"><span id="compass-arrow">▲</span><span id="compass-dist"></span></div>
+        <div>
+          <div id="goal-title">目標</div>
+          <div id="goal-sub"></div>
+        </div>
+      </div>
+      <div id="prompt" hidden></div>
+      <div id="labels"></div>
+      <div id="bubbles"></div>
+      <div id="banner" hidden></div>
+    </div>
+
+    <div id="touch">
+      <div id="joy" aria-label="移動搖桿"><div id="joy-knob"></div></div>
+      <div id="actions">
+        <button id="btn-accel" type="button">加速</button>
+        <button id="btn-interact" type="button">互動</button>
+        <button id="btn-vehicle" type="button">乘車</button>
+      </div>
+    </div>
+
+    <section id="dialog" class="overlay" hidden>
+      <div class="card dialog-card">
+        <div id="dlg-name"></div>
+        <p id="dlg-text"></p>
+        <div id="dlg-choices"></div>
+      </div>
+    </section>
+
+    <section id="pause" class="overlay" hidden>
+      <div class="card">
+        <h2>暫停</h2>
+        <p id="records"></p>
+        <button id="btn-resume" type="button">繼續</button>
+        <button id="btn-save" type="button">儲存</button>
+        <button id="btn-pause-settings" type="button">設定</button>
+        <button id="btn-help2" type="button">操作說明</button>
+        <button id="btn-map" type="button">大地圖</button>
+        <button id="btn-title" type="button">回到標題</button>
+      </div>
+    </section>
+
+    <section id="settings" class="overlay" hidden>
+      <div class="card">
+        <h2>設定</h2>
+        <label>音樂 <input id="music-vol" type="range" min="0" max="100" value="75"></label>
+        <label>音效 <input id="sfx-vol" type="range" min="0" max="100" value="85"></label>
+        <label class="check"><input id="mute-check" type="checkbox"> 靜音</label>
+        <label class="check"><input id="touch-check" type="checkbox"> 顯示虛擬按鍵</label>
+        <button id="settings-close" type="button">完成</button>
+      </div>
+    </section>
+
+    <section id="help" class="overlay" hidden>
+      <div class="card help-card">
+        <h2>操作說明</h2>
+        <p><b>電腦</b>：WASD 或方向鍵移動，Shift 衝刺，空白鍵加速，E 互動，F 上下車，H 喇叭，M 地圖，Esc 選單。</p>
+        <p><b>手機</b>：左下搖桿移動。右側大按鈕是加速、互動、上下車。加速在走路時會衝刺。</p>
+        <p>畫面上會一直顯示現金、時間、體力、通緝星跟目前目標。小地圖在右上角。</p>
+        <p>遊戲時間照固定速度走，開車再快也不會把白天開成晚上。</p>
+        <button id="help-close" type="button">知道了</button>
+      </div>
+    </section>
+
+    <section id="map" class="overlay" hidden>
+      <div class="card map-card">
+        <div class="row">
+          <button id="map-city" type="button">屏東市</button>
+          <button id="map-kenting" type="button">墾丁</button>
+          <button id="map-close" type="button">關閉</button>
+        </div>
+        <canvas id="map-canvas" width="760" height="760"></canvas>
+      </div>
+    </section>
+
+    <section id="mini" class="overlay" hidden>
+      <div class="card mini-card">
+        <h2 id="mini-title">小遊戲</h2>
+        <canvas id="mini-canvas" width="640" height="360"></canvas>
+        <button id="mini-close" type="button">離開</button>
+      </div>
+    </section>
+
+    <section id="ending" class="overlay" hidden>
+      <div class="card">
+        <h2 id="ending-title"></h2>
+        <p id="ending-text"></p>
+        <button id="ending-free" type="button">繼續自由遊玩</button>
+        <button id="ending-title-btn" type="button">回到標題</button>
+      </div>
+    </section>
+
+    <div id="toast" hidden></div>
+  </div>
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>
