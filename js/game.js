@@ -89,6 +89,7 @@ function boot() {
       get blocks() { return sim ? sim.roadblocks.length : 0; },
       get scene() { return sceneName(); },
       get cameraYaw() { return camYaw; },
+      project(x, y, z) { return renderer.project(x, y, z); },
       get cops() { return sim ? sim.police.map((c) => ({ x: c.x, z: c.z, kind: c.kind })) : []; },
     };
     requestAnimationFrame(frame);
