@@ -16,7 +16,8 @@
   --minimap: calc(86px * var(--ui-scale));
   --joy: calc(98px * var(--ui-scale));
   --act: calc(54px * var(--ui-scale));
-  --hint-top: calc(var(--edge) + var(--sat) + 36px * var(--ui-scale));
+  --stack-top: calc(var(--edge) + var(--sat) + var(--minimap) + 8px);
+  --hint-top: calc(var(--stack-top) + 34px * var(--ui-scale));
   color-scheme: dark;
 }
 
@@ -158,19 +159,40 @@ button {
 #minimap {
   position: absolute;
   left: calc(var(--edge) + var(--sal));
-  bottom: calc(var(--edge) + var(--sab));
+  top: calc(var(--edge) + var(--sat));
   width: var(--minimap);
   height: var(--minimap);
   border-radius: 50%;
   border: 2px solid rgba(255, 209, 92, 0.85);
   background: #121820;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+}
+#btn-menu {
+  position: absolute;
+  top: calc(var(--edge) + var(--sat));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: auto;
+  height: calc(36px * var(--ui-scale));
+  min-height: calc(36px * var(--ui-scale));
+  padding: 0 calc(14px * var(--ui-scale));
+  border-radius: 999px;
+  background: rgba(18, 16, 14, 0.78);
+  color: var(--cream);
+  border: 1px solid var(--line);
+  font-size: var(--hud-font);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
 }
 #goal {
   position: absolute;
-  top: calc(var(--edge) + var(--sat));
+  top: var(--stack-top);
   left: calc(var(--edge) + var(--sal));
-  max-width: min(46vw, calc(100% - 132px * var(--ui-scale)));
+  max-width: min(52vw, calc(100% - 148px * var(--ui-scale)));
+  max-height: max(32px, calc(20dvh - var(--stack-top) - 6px));
+  overflow: auto;
   margin: 0;
   display: block;
   text-align: left;
@@ -280,7 +302,7 @@ button {
 body.show-touch #touch { display: block; }
 #joy {
   position: absolute;
-  left: calc(var(--edge) + var(--sal) + var(--minimap) + 8px);
+  left: calc(var(--edge) + var(--sal));
   bottom: calc(var(--edge) + var(--sab));
   width: var(--joy);
   height: var(--joy);
@@ -303,8 +325,8 @@ body.show-touch #touch { display: block; }
   position: absolute;
   right: calc(var(--edge) + var(--sar));
   bottom: calc(var(--edge) + var(--sab));
-  display: grid;
-  grid-template-columns: var(--act) var(--act);
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   pointer-events: auto;
 }
@@ -321,11 +343,6 @@ body.show-touch #touch { display: block; }
 #btn-interact { opacity: 0.42; }
 #btn-interact.ready { opacity: 1; outline: 3px solid #fff; }
 #btn-accel { background: #f2d48a; }
-#btn-menu {
-  background: rgba(18, 16, 14, 0.78);
-  color: var(--cream);
-  border: 1px solid var(--line);
-}
 body.cine #hud .hud-piece,
 body.cine #touch,
 body.cine #guide,
@@ -376,7 +393,7 @@ input[type="range"] { width: 58%; accent-color: var(--gold); height: 28px; }
 }
 body.show-touch #clock-debug {
   left: calc(var(--edge) + var(--sal));
-  bottom: calc(var(--edge) + var(--sab) + var(--minimap) + 8px);
+  bottom: calc(var(--edge) + var(--sab) + var(--joy) + 8px);
   width: min(200px, 46vw);
 }
 #dlg-name { color: var(--gold); font-weight: 800; margin-bottom: 6px; }
@@ -420,15 +437,15 @@ body.raining #rain { opacity: 0.55; }
     --minimap: calc(70px * var(--ui-scale));
     --joy: calc(78px * var(--ui-scale));
     --act: calc(46px * var(--ui-scale));
-    --hint-top: calc(var(--edge) + var(--sat) + 30px * var(--ui-scale));
   }
   #dialog.overlay { padding-top: 8vh; }
   #dialog .card { max-height: calc(100dvh - 120px - var(--sat) - var(--sab)); }
   .card h1 { font-size: 34px; }
   #title { place-items: center end; }
-  #goal { max-width: min(34vw, 280px); }
-  #hint { max-width: min(220px, 36vw); }
-  #actions { grid-template-columns: var(--act) var(--act); }
+  #goal, #hint {
+    max-width: calc(20vw - var(--edge) - var(--sal) - 4px);
+  }
+  #goal { max-height: min(42dvh, 150px); }
 }
 @media (max-width: 420px) and (orientation: portrait) {
   .card h1 { font-size: 38px; }
