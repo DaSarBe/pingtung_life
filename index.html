@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffb703'/%3E%3C/svg%3E">
   <title>屏東人生</title>
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
   <canvas id="c"></canvas>
@@ -36,11 +36,13 @@
         <div id="stam" class="pill" hidden aria-label="體力"><span id="stam-label">體力</span><div id="stam-track"><div id="stam-fill"></div></div></div>
       </div>
       <button id="btn-menu" class="hud-piece" type="button">選單</button>
-      <button id="goal" class="hud-piece" type="button">
-        <span id="goal-title">目標</span>
-        <span id="goal-sub"></span>
-      </button>
-      <div id="hint" class="float-text hud-piece" hidden></div>
+      <div id="cluster-tl">
+        <button id="goal" class="hud-piece" type="button">
+          <span id="goal-title">目標</span>
+          <span id="goal-sub"></span>
+        </button>
+        <div id="hint" class="float-text hud-piece" hidden></div>
+      </div>
       <canvas id="minimap" class="hud-piece" width="160" height="160" aria-label="小地圖，點一下打開大地圖" title="打開大地圖"></canvas>
       <div id="guide" hidden aria-hidden="true"><span id="guide-arrow"></span><span id="guide-dist" class="float-text"></span></div>
       <div id="key-badge" hidden>E</div>
@@ -70,24 +72,28 @@
         <h2>暫停</h2>
         <p id="quest-full"></p>
         <p id="records"></p>
-        <button id="btn-resume" type="button">繼續</button>
-        <button id="btn-save" type="button">儲存</button>
-        <button id="btn-pause-settings" type="button">設定</button>
-        <button id="btn-help2" type="button">操作說明</button>
-        <button id="btn-map" type="button">大地圖</button>
-        <button id="btn-title" type="button">回到標題</button>
+        <div class="btn-grid">
+          <button id="btn-resume" type="button">繼續</button>
+          <button id="btn-save" type="button">儲存</button>
+          <button id="btn-map" type="button">大地圖</button>
+          <button id="btn-pause-settings" type="button">設定</button>
+          <button id="btn-help2" type="button">操作說明</button>
+          <button id="btn-title" type="button">回到標題</button>
+        </div>
       </div>
     </section>
 
     <section id="settings" class="overlay" hidden>
-      <div class="card">
+      <div class="card settings-card">
         <h2>設定</h2>
-        <label>音樂 <input id="music-vol" type="range" min="0" max="100" value="75"></label>
-        <label>音效 <input id="sfx-vol" type="range" min="0" max="100" value="85"></label>
-        <label class="check"><input id="mute-check" type="checkbox"> 靜音</label>
-        <label class="check"><input id="touch-check" type="checkbox"> 顯示虛擬按鍵</label>
-        <label>介面大小 <input id="ui-scale" type="range" min="80" max="130" value="100"></label>
-        <button id="settings-close" type="button">完成</button>
+        <div class="settings-grid">
+          <label>音樂 <input id="music-vol" type="range" min="0" max="100" value="75"></label>
+          <label>音效 <input id="sfx-vol" type="range" min="0" max="100" value="85"></label>
+          <label>介面大小 <input id="ui-scale" type="range" min="80" max="130" value="100"></label>
+          <label class="check"><input id="mute-check" type="checkbox"> 靜音</label>
+          <label class="check"><input id="touch-check" type="checkbox"> 顯示虛擬按鍵</label>
+        </div>
+        <button id="settings-close" class="sticky-btn" type="button">完成</button>
       </div>
     </section>
 
@@ -100,7 +106,7 @@
         <p>現金、時間、通緝星在右上角，小地圖在左上角，點一下打開大地圖。任務縮在小地圖下方，點一下可以展開。完整目標在選單裡。體力只在跑步或快用完時出現。教學只在第一次做的時候出現，做完那個動作就收起來。</p>
         <p>遊戲時間固定是現實 1 秒走 1 分鐘。走路、衝刺、騎車、開大地圖都一樣，開快車不會把白天開成晚上。對話和暫停時，時間會停住。</p>
         <p>按 F3，或在網址加上 ?clock=1，可以打開時間偵錯，同時看到現實秒數和遊戲分鐘。</p>
-        <button id="help-close" type="button">知道了</button>
+        <button id="help-close" class="sticky-btn" type="button">知道了</button>
       </div>
     </section>
 
@@ -117,9 +123,11 @@
 
     <section id="mini" class="overlay" hidden>
       <div class="card mini-card">
-        <h2 id="mini-title">小遊戲</h2>
+        <div class="mini-head">
+          <h2 id="mini-title">小遊戲</h2>
+          <button id="mini-close" type="button">離開</button>
+        </div>
         <canvas id="mini-canvas" width="640" height="360"></canvas>
-        <button id="mini-close" type="button">離開</button>
       </div>
     </section>
 
@@ -127,14 +135,16 @@
       <div class="card">
         <h2 id="ending-title"></h2>
         <p id="ending-text"></p>
-        <button id="ending-free" type="button">繼續自由遊玩</button>
-        <button id="ending-title-btn" type="button">回到標題</button>
+        <div class="btn-grid">
+          <button id="ending-free" type="button">繼續自由遊玩</button>
+          <button id="ending-title-btn" type="button">回到標題</button>
+        </div>
       </div>
     </section>
 
     <div id="toast" hidden></div>
   </div>
   <div id="clock-debug" hidden></div>
-  <script type="module" src="js/game.js?v=10"></script>
+  <script type="module" src="js/game.js?v=11"></script>
 </body>
 </html>
