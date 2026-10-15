@@ -1,7 +1,7 @@
 import {
   DEG, clamp, dampAngle, dist2, identity, pointBlocked, createRenderer, resolveCircle, wrapAngle,
 } from "./engine.js";
-import { createLibrary, drawCar, drawHeli, drawPerson, drawProp, drawScooter, prepareFrame } from "./models.js";
+import { createLibrary, drawCar, drawHeli, drawPerson, drawProp, drawRider, drawScooter, prepareFrame } from "./models.js";
 import { createWorld, groundY as worldGround, highwayTFromZ, inZone, waterEdgeX, RACE_POINTS } from "./world.js";
 import { CLOCK_RATE, advanceClock, festivalState, formatClock, formatMoney, skyEnvironment } from "./shift.js";
 import { createAudio } from "./audio.js";
@@ -48,6 +48,19 @@ const camera = {
   up: [0, 1, 0],
   fov: 58 * DEG,
 };
+const INTERACT_REACH = 4.2;
+const MOUNT_REACH = 6.5;
+const WALK_SPEED = 4.7;
+const SPRINT_SPEED = 7.6;
+let stuckTime = 0;
+let stamWarned = false;
+let moveKind = "idle";
+const clockDebug = {
+  enabled: new URLSearchParams(location.search).get("clock") === "1",
+  wall: 0,
+  running: 0,
+  origin: null,
+};
 
 const game = {
   get state() { return state; },
@@ -57,7 +70,7 @@ const game = {
   get mode() { return mode; },
   get speed() { return gameSpeed; },
   get race() { return race; },
-  eventTimer: 8,
+  eventTimer: 48,
   say, toast, openActivity, startRace, startDelivery, startCrate,
   enter, exitInterior, save, showEnding, addMoney, addWanted, removeInteract, fade,
 };
@@ -73,6 +86,7 @@ function boot() {
     board = readBoard();
     applyAudio();
     $("btn-continue").disabled = !hasSave();
+    if (clockDebug.enabled) $("clock-debug").hidden = false;
     bindInput();
     window.__PT = {
       get state() { return state; },
@@ -83,13 +97,25 @@ function boot() {
       tp(x, z) { if (state) { state.x = x; state.z = z; } },
       setTime(h) { if (state) state.time = h * 3600; },
       setWanted(n) { if (state) state.wanted = clamp(n, 0, 5); },
+      setStamina(n) { if (state) state.stamina = clamp(n, 0, 100); },
       setChapter(c) { if (state) state.chapter = c; },
       get police() { return sim ? sim.police.length : 0; },
       get heli() { return !!(sim && sim.heli); },
       get blocks() { return sim ? sim.roadblocks.length : 0; },
       get scene() { return sceneName(); },
       get cameraYaw() { return camYaw; },
+      get cam() { return camera.eye ? { x: camera.eye[0], y: camera.eye[1], z: camera.eye[2], yaw: camYaw } : null; },
       setCameraYaw(y) { camYaw = wrapAngle(y); lookHold = 1.2; },
+      get chapter() { return state && state.chapter; },
+      get goal() { return state ? activeGoal() : null; },
+      get prompt() { return $("prompt").hidden ? "" : $("prompt").textContent; },
+      get place() { return $("place-name").hidden ? "" : $("place-name").textContent; },
+      get pos() { return state ? { x: state.x, y: state.y, z: state.z, yaw: state.yaw, riding: state.riding, stamina: state.stamina } : null; },
+      setYaw(y) { if (state) { state.yaw = y; camYaw = y; lookHold = 0; } },
+      blocked(x, z, r = 0.34) { return pointBlocked(state && state.inside ? world.interiorGrids[state.inside] : world.grid, x, z, r); },
+      clockSample() { return readClockDebug(); },
+      resetClockDebug() { resetClockDebug(); },
+      mini() { return activities.snapshot(); },
       project(x, y, z) { return renderer.project(x, y, z); },
       get cops() { return sim ? sim.police.map((c) => ({ x: c.x, z: c.z, kind: c.kind })) : []; },
     };
@@ -136,9 +162,7 @@ function beginPlaying(next, banner) {
   $("pause").hidden = true;
   $("ending").hidden = true;
   if (banner) {
-    bannerUntil = performance.now() + 7000;
-    $("banner").hidden = false;
-    $("banner").textContent = "WASD 移動，E 互動，F 上下車。手機用左下搖桿移動，在畫面上左右滑動轉視角。";
+    showBanner("WASD 移動，空白鍵加速，E 跟人說話，F 上下車。騎車時方向跟著車頭，鏡頭會跟在車後。");
   }
   audio.resume();
   audio.setScene(sceneName(), true);
@@ -148,11 +172,16 @@ function beginPlaying(next, banner) {
 function bindInput() {
   window.addEventListener("keydown", (e) => {
     if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+    if (e.code === "F3") {
+      e.preventDefault();
+      if (!e.repeat) toggleClockDebug();
+      return;
+    }
     if (e.repeat) return;
     keys[e.code] = true;
     audio.resume();
     if (mode === "dialog") {
-      if (e.code === "Space" || e.code === "Enter" || e.code === "KeyE") advanceDialog();
+      if (e.code === "Enter" || e.code === "KeyE") advanceDialog();
       return;
     }
     if (mode === "mini") {
@@ -169,7 +198,7 @@ function bindInput() {
       else if (mode === "playing") openPause();
       else if (mode === "pause") closePause();
     }
-  });
+  }, true);
   window.addEventListener("keyup", (e) => { keys[e.code] = false; if (e.code === "Space") input.accel = false; });
   window.addEventListener("blur", () => { for (const k of Object.keys(keys)) keys[k] = false; input.accel = false; });
 
@@ -214,9 +243,19 @@ function bindInput() {
     el.addEventListener("pointercancel", () => fn(false));
     el.addEventListener("pointerleave", () => fn(false));
   };
-  hold($("btn-accel"), (v) => { input.accel = v; });
-  $("btn-interact").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.interactQueued = true; });
-  $("btn-vehicle").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.vehicleQueued = true; });
+  hold($("btn-accel"), (v) => { if (mode === "playing") input.accel = v; });
+  $("btn-interact").addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    audio.resume();
+    if (mode === "dialog") { advanceDialog(); return; }
+    if (mode === "playing") input.interactQueued = true;
+  });
+  $("btn-vehicle").addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    audio.resume();
+    if (mode === "playing") input.vehicleQueued = true;
+  });
+  $("banner").addEventListener("click", () => { $("banner").hidden = true; bannerUntil = 0; });
 
   canvas.addEventListener("pointerdown", (e) => {
     if (mode !== "playing" || (e.button != null && e.button !== 0)) return;
@@ -327,6 +366,7 @@ function newGame() {
 
 function openSettings(from) {
   settingsReturn = from;
+  if (from === "pause") $("pause").hidden = true;
   $("settings").hidden = false;
   audio.resume();
 }
@@ -368,10 +408,20 @@ function toTitle() {
   document.body.classList.remove("show-touch");
 }
 
-function say(lines) {
-  dialog = { lines, i: 0 };
+function say(lines, onDone) {
+  dialog = { lines, i: 0, onDone: typeof onDone === "function" ? onDone : null };
   mode = "dialog";
+  input.interactQueued = false;
+  input.vehicleQueued = false;
+  input.accel = false;
   renderDialog();
+}
+function closeDialog() {
+  const done = dialog && dialog.onDone;
+  dialog = null;
+  $("dialog").hidden = true;
+  if (mode === "dialog") mode = "playing";
+  if (done) done();
 }
 function renderDialog() {
   const el = $("dialog");
@@ -407,11 +457,21 @@ function advanceDialog() {
   if (!dialog) return;
   if (dialog.lines[dialog.i].choices) return;
   dialog.i += 1;
-  if (dialog.i >= dialog.lines.length) {
-    dialog = null;
-    $("dialog").hidden = true;
-    if (mode === "dialog") mode = "playing";
-  } else renderDialog();
+  if (dialog.i >= dialog.lines.length) closeDialog();
+  else renderDialog();
+}
+
+function showBanner(text, ms = 18000) {
+  const el = $("banner");
+  el.replaceChildren();
+  const line = document.createElement("div");
+  line.textContent = text;
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = "點一下關閉";
+  el.append(line, hint);
+  el.hidden = false;
+  bannerUntil = performance.now() + ms;
 }
 
 function toast(text) {
@@ -559,10 +619,11 @@ let last = performance.now();
 let fpsWindow = 0;
 let fpsFrames = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const raw = Math.min(0.25, Math.max(0, (now - last) / 1000));
   last = now;
+  const dt = Math.min(0.05, raw);
   if (!document.hidden) {
-    update(dt);
+    update(dt, raw);
     render();
     fpsWindow += dt;
     fpsFrames += 1;
@@ -579,17 +640,31 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function update(dt) {
+function clockRunning() {
+  return !!state && (mode === "playing" || mode === "map" || mode === "mini");
+}
+
+function update(dt, clockDt = dt) {
   blink += dt;
   shake = Math.max(0, shake - dt);
   if (mode === "title") {
-    titleTime += dt * CLOCK_RATE;
+    titleTime += clockDt * CLOCK_RATE;
     audio.setScene("title");
     audio.update();
     return;
   }
   if (!state) return;
-  if (mode !== "pause" && mode !== "ending") advanceClock(state, dt);
+  const runClock = clockRunning();
+  if (runClock) advanceClock(state, clockDt);
+  if (clockDebug.enabled) {
+    clockDebug.wall += clockDt;
+    if (runClock) clockDebug.running += clockDt;
+    if (clockDebug.origin == null) clockDebug.origin = state.time;
+  }
+  if (mode === "playing" && !state.inside && !state.flags.marketHint && inZone("market", state.x, state.z)) {
+    state.flags.marketHint = true;
+    showBanner("走到紅衣阿霞前按 E。她穿紅色上衣，腳下有一圈光。");
+  }
   document.body.classList.toggle("raining", state.time < state.rainUntil && !state.inside);
   if (mode === "playing") {
     updatePlayer(dt);
@@ -607,14 +682,15 @@ function update(dt) {
       $("mini").hidden = true;
       mode = "playing";
     }
-  } else if (mode === "dialog" || mode === "map") {
-    /* clock already advanced; world waits */
+  } else if (mode === "dialog" || mode === "pause" || mode === "ending") {
+    /* 對話、暫停、結局時世界與時鐘都停著；大地圖與小遊戲仍在 update 外面推進時鐘 */
   }
   if (toastTimer > 0) {
     toastTimer -= dt;
     if (toastTimer <= 0) $("toast").hidden = true;
   }
-  if (bannerUntil && performance.now() > bannerUntil) {
+  document.body.classList.toggle("in-dialog", mode === "dialog");
+  if (bannerUntil && mode !== "dialog" && performance.now() > bannerUntil) {
     $("banner").hidden = true;
     bannerUntil = 0;
   }
@@ -659,9 +735,13 @@ function updatePlayer(dt) {
   const mag = Math.hypot(ix, iz);
   const nx = mag > 1 ? ix / mag : ix;
   const nz = mag > 1 ? iz / mag : iz;
-  const thrust = input.accel || !!keys.Space || nz > 0.5;
+  const vehicleThrust = input.accel || !!keys.Space || nz > 0.5;
+  const footSprint = !!(input.accel || keys.Space || keys.ShiftLeft || keys.ShiftRight);
   const rain = state.time < state.rainUntil ? 0.86 : 1;
 
+  const prevX = state.x;
+  const prevZ = state.z;
+  let wish = 0;
   if (!riding) {
     if (mag > 0.12) {
       const fx = Math.sin(camYaw);
@@ -673,40 +753,59 @@ function updatePlayer(dt) {
       const len = Math.hypot(mx, mz) || 1;
       mx /= len; mz /= len;
       state.yaw = Math.atan2(mx, mz);
-      const sprint = (thrust || keys.ShiftLeft || keys.ShiftRight) && state.stamina > 1;
-      const spd = (sprint ? 6.5 : 3.2) * Math.min(1, mag);
+      const sprint = footSprint && state.stamina > 1;
+      const spd = (sprint ? SPRINT_SPEED : WALK_SPEED) * Math.min(1, mag) * rain;
       if (sprint) state.stamina = Math.max(0, state.stamina - 18 * dt);
-      else state.stamina = Math.min(100, state.stamina + 8 * dt);
+      else state.stamina = Math.min(100, state.stamina + 9 * dt);
       gameSpeed = spd;
-      state.x += mx * spd * dt;
-      state.z += mz * spd * dt;
+      wish = spd * dt;
+      slideMove(grid, mx * wish, mz * wish, radius);
       walkPhase += spd * dt * 2.2;
+      moveKind = sprint ? "sprint" : "walk";
     } else {
       gameSpeed = 0;
-      state.stamina = Math.min(100, state.stamina + 16 * dt);
+      const rec = state.stamina <= 8 ? 5 : 16;
+      state.stamina = Math.min(100, state.stamina + rec * dt);
+      moveKind = "idle";
     }
     lean = 0;
   } else {
     const max = (riding === "car" ? 34 : 24) * rain;
     const accel = riding === "car" ? 12 : 15;
-    if (thrust) speedV = Math.min(max, speedV + accel * dt);
+    if (vehicleThrust) speedV = Math.min(max, speedV + accel * dt);
     else if (nz < -0.35 || keys.KeyS || keys.ArrowDown) speedV = Math.max(-6, speedV - accel * dt);
     else speedV *= Math.exp(-1.35 * dt);
     const turnRate = (riding === "car" ? 1.5 : 2.2) * clamp(Math.abs(speedV) / 8, 0.28, 1);
     state.yaw -= nx * turnRate * dt * (speedV < 0 ? -1 : 1);
     lean = clamp(nx * 0.28, -0.3, 0.3);
-    state.x += Math.sin(state.yaw) * speedV * dt;
-    state.z += Math.cos(state.yaw) * speedV * dt;
+    wish = Math.abs(speedV) * dt;
+    slideMove(grid, Math.sin(state.yaw) * speedV * dt, Math.cos(state.yaw) * speedV * dt, radius);
     wheelSpin += speedV * dt / 0.32;
     gameSpeed = Math.abs(speedV);
     state.stamina = Math.min(100, state.stamina + 6 * dt);
     walkPhase += dt * 2;
+    moveKind = riding === "car" ? "car" : "scooter";
   }
 
-  const resolved = resolveCircle(grid, state.x, state.z, radius);
-  if (resolved.hit && riding) speedV *= 0.5;
-  state.x = resolved.x;
-  state.z = resolved.z;
+  const moved = Math.hypot(state.x - prevX, state.z - prevZ);
+  if (wish > 0.02 && moved < wish * 0.28) stuckTime += dt;
+  else stuckTime = Math.max(0, stuckTime - dt);
+  if (stuckTime > 0.28) {
+    const side = Math.sin(stuckTime * 7) >= 0 ? 1 : -1;
+    const a = (riding ? state.yaw : camYaw) + side * Math.PI / 2;
+    for (const dist of [0.85, 1.35, 1.9]) {
+      const tx = state.x + Math.sin(a) * dist;
+      const tz = state.z + Math.cos(a) * dist;
+      if (!pointBlocked(grid, tx, tz, radius + 0.05)) {
+        state.x = tx;
+        state.z = tz;
+        stuckTime = 0;
+        if (riding) speedV *= 0.75;
+        break;
+      }
+    }
+  }
+  if (riding && wish > 0.02 && moved < wish * 0.4) speedV *= 0.9;
   if (!state.inside) {
     const limited = limitWorld(state.x, state.z);
     state.x = limited.x;
@@ -726,10 +825,32 @@ function updatePlayer(dt) {
   }
   if (lookId != null) lookHold = 0.85;
   else lookHold = Math.max(0, lookHold - dt);
-  const steering = Math.abs(nx) > 0.2;
-  if (riding && lookId == null && lookHold <= 0 && !steering) {
-    camYaw = dampAngle(camYaw, state.yaw, 1.5, dt);
+  if (riding && lookId == null) camYaw = dampAngle(camYaw, state.yaw, lookHold > 0 ? 2.6 : 8, dt);
+  if (state.stamina <= 0.5 && !stamWarned) {
+    stamWarned = true;
+    toast("體力用完了，慢慢走會恢復");
+  } else if (state.stamina > 30) stamWarned = false;
+}
+
+function slideMove(grid, dx, dz, radius) {
+  const direct = resolveCircle(grid, state.x + dx, state.z + dz, radius);
+  if (!direct.hit) {
+    state.x = direct.x;
+    state.z = direct.z;
+    return;
   }
+  const alongX = resolveCircle(grid, state.x + dx, state.z, radius);
+  const alongZ = resolveCircle(grid, state.x, state.z + dz, radius);
+  const dx1 = alongX.x - state.x;
+  const dz1 = alongX.z - state.z;
+  const dx2 = alongZ.x - state.x;
+  const dz2 = alongZ.z - state.z;
+  const pick = dx1 * dx1 + dz1 * dz1 >= dx2 * dx2 + dz2 * dz2 ? alongX : alongZ;
+  const nudged = dx1 * dx1 + dz1 * dz1 >= dx2 * dx2 + dz2 * dz2
+    ? resolveCircle(grid, pick.x, pick.z + dz, radius)
+    : resolveCircle(grid, pick.x + dx, pick.z, radius);
+  state.x = nudged.x;
+  state.z = nudged.z;
 }
 
 function limitWorld(x, z) {
@@ -775,7 +896,7 @@ function toggleVehicle() {
     return;
   }
   let best = null;
-  let bestD = 2.8 * 2.8;
+  let bestD = MOUNT_REACH * MOUNT_REACH;
   for (const v of world.parked) {
     const d = dist2(state.x, state.z, v.x, v.z);
     if (d < bestD) { bestD = d; best = v; }
@@ -814,8 +935,21 @@ function mount(v, fromTraffic) {
 
 function nearestInteract() {
   const list = interiorSpots();
+  if (!state.inside) {
+    const goal = activeGoal();
+    if (goal) {
+      let goalItem = null;
+      let goalSpot = 2.4 * 2.4;
+      for (const item of list) {
+        if (item.type === "pickup") continue;
+        const spot = dist2(item.x, item.z, goal.x, goal.z);
+        if (spot < goalSpot) { goalSpot = spot; goalItem = item; }
+      }
+      if (goalItem && dist2(state.x, state.z, goalItem.x, goalItem.z) <= INTERACT_REACH * INTERACT_REACH) return goalItem;
+    }
+  }
   let best = null;
-  let bestD = 3.1 * 3.1;
+  let bestD = INTERACT_REACH * INTERACT_REACH;
   for (const item of list) {
     const d = dist2(state.x, state.z, item.x, item.z);
     if (d < bestD) { bestD = d; best = item; }
@@ -1005,6 +1139,118 @@ function pointSegment(px, pz, a, b) {
   return Math.hypot(px - (a.x + dx * t), pz - (a.z + dz * t));
 }
 
+function nearestParked() {
+  let best = null;
+  let bestD = MOUNT_REACH * MOUNT_REACH;
+  for (const v of world.parked) {
+    const d = dist2(state.x, state.z, v.x, v.z);
+    if (d < bestD) { bestD = d; best = v; }
+  }
+  return best;
+}
+
+function interactPrompt(item) {
+  if (item.type === "npc") return `按 E 與${item.name}說話`;
+  if (item.type === "door") return `按 E 進入${item.name}`;
+  return `按 E ${item.name}`;
+}
+
+function updatePlaceName() {
+  const el = $("place-name");
+  if (!state) { el.hidden = true; return; }
+  if (state.inside) {
+    el.hidden = false;
+    el.textContent = state.inside === "jail" ? "派出所裡" : state.inside === "shop" ? "店裡" : "家裡";
+    return;
+  }
+  let best = null;
+  let bestD = 75 * 75;
+  for (const label of world.labels) {
+    const d = dist2(state.x, state.z, label.x, label.z);
+    if (d < bestD) { bestD = d; best = label; }
+  }
+  el.hidden = !best;
+  if (best) el.textContent = best.text;
+}
+
+function toggleClockDebug() {
+  clockDebug.enabled = !clockDebug.enabled;
+  resetClockDebug();
+  $("clock-debug").hidden = !clockDebug.enabled;
+}
+
+function resetClockDebug() {
+  clockDebug.wall = 0;
+  clockDebug.running = 0;
+  clockDebug.origin = state ? state.time : null;
+}
+
+function readClockDebug() {
+  const origin = clockDebug.origin == null ? (state ? state.time : 0) : clockDebug.origin;
+  const gameMin = state ? (state.time - origin) / 60 : 0;
+  const ratio = gameMin > 0.02 ? clockDebug.running / gameMin : 60 / CLOCK_RATE;
+  return {
+    wall: clockDebug.wall,
+    running: clockDebug.running,
+    gameMin,
+    ratio,
+    theory: 60 / CLOCK_RATE,
+    runningClock: clockRunning(),
+    mode: moveKind,
+    screen: mode,
+  };
+}
+
+function renderClockDebug() {
+  const el = $("clock-debug");
+  if (!clockDebug.enabled || !state) { el.hidden = true; return; }
+  el.hidden = false;
+  const sample = readClockDebug();
+  const names = { idle: "站著", walk: "走路", sprint: "衝刺", scooter: "騎車", car: "開車" };
+  const screens = { playing: "遊玩", dialog: "對話", map: "大地圖", pause: "暫停", mini: "小遊戲", ending: "結局" };
+  el.textContent = [
+    "時間偵錯　F3 關閉",
+    `現實 ${sample.wall.toFixed(2)} 秒`,
+    `遊戲 ${sample.gameMin.toFixed(2)} 分`,
+    `時鐘進行 ${sample.running.toFixed(2)} 秒`,
+    `比例 ${sample.ratio.toFixed(2)} 秒／遊戲分`,
+    `理論 ${sample.theory.toFixed(2)}（每秒 1 分鐘）`,
+    `${screens[mode] || mode}・${names[moveKind] || moveKind}・${sample.runningClock ? "時鐘進行" : "時鐘暫停"}`,
+  ].join("\n");
+}
+
+function drawGoalMarker(goal) {
+  const gDist = Math.hypot(goal.x - state.x, goal.z - state.z);
+  const gy = worldGround(goal.x, goal.z);
+  if (gDist < 90) drawProp(renderer, lib.ring, goal.x, gy + 0.08, goal.z, blink * 0.5, 1.2, null);
+  if (gDist > 16 && gDist < 260) {
+    const y = gy + 5.2 + Math.sin(blink * 4) * 0.2;
+    const face = Math.atan2(state.x - goal.x, state.z - goal.z);
+    drawProp(renderer, lib.chevron, goal.x, y, goal.z, face, 0.8, null);
+  }
+}
+
+function viewHitsChunk(chunk) {
+  if (!state || state.inside || !world.cameraGrid) return false;
+  const eye = camera.eye;
+  const target = camera.target;
+  const dx = target[0] - eye[0];
+  const dy = target[1] - eye[1];
+  const dz = target[2] - eye[2];
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const samples = [eye, [eye[0] + dx / len * 0.9, eye[1] + dy / len * 0.9, eye[2] + dz / len * 0.9]];
+  const min = chunk.min;
+  const max = chunk.max;
+  for (const p of samples) {
+    if (!pointBlocked(world.cameraGrid, p[0], p[2], 0.2)) continue;
+    if (p[0] < min[0] - 0.5 || p[0] > max[0] + 0.5) continue;
+    if (p[1] < min[1] - 1 || p[1] > max[1] + 1) continue;
+    if (p[2] < min[2] - 0.5 || p[2] > max[2] + 0.5) continue;
+    return true;
+  }
+  return false;
+}
+
 function updateHud() {
   const goal = activeGoal();
   $("money").textContent = formatMoney(state.money);
@@ -1012,6 +1258,12 @@ function updateHud() {
   const stars = "★★★★★".slice(0, state.wanted) + "☆☆☆☆☆".slice(state.wanted);
   $("stars").textContent = stars;
   $("stam-fill").style.width = `${clamp(state.stamina, 0, 100)}%`;
+  const stam = $("stam");
+  stam.classList.toggle("empty", state.stamina <= 8);
+  stam.classList.toggle("low", state.stamina > 8 && state.stamina < 28);
+  $("stam-label").textContent = state.stamina <= 8 ? "體力用完" : state.stamina < 28 ? "體力不足" : "體力";
+  updatePlaceName();
+  renderClockDebug();
   $("goal-title").textContent = goal.title;
   $("goal-sub").textContent = goal.detail || "";
   const dx = goal.x - state.x;
@@ -1030,14 +1282,18 @@ function updateHud() {
   updateGuide(goal, dist, ang, distText);
   const item = nearestInteract();
   const prompt = $("prompt");
+  const parked = !state.riding ? nearestParked() : null;
   if (item && mode === "playing") {
     prompt.hidden = false;
     prompt.textContent = state.riding && item.type !== "npc" && item.type !== "delivery" && item.type !== "crate"
-      ? `下車後再${item.name}`
-      : `互動 · ${item.name}`;
+      ? `先按 F 下車，再${item.name}`
+      : interactPrompt(item);
+  } else if (parked && mode === "playing") {
+    prompt.hidden = false;
+    prompt.textContent = parked.id === "mine" ? "按 F 騎上紅色機車" : parked.type === "car" ? "按 F 上車" : "按 F 騎車";
   } else if (state.riding && mode === "playing") {
     prompt.hidden = false;
-    prompt.textContent = "乘車鍵可以下車";
+    prompt.textContent = "按 F 下車";
   } else prompt.hidden = true;
   $("btn-interact").classList.toggle("ready", !!item);
   drawMinimap();
@@ -1060,7 +1316,7 @@ function updateGuide(goal, dist, ang, distText) {
   const el = $("guide");
   const arrow = $("guide-arrow");
   const label = $("guide-dist");
-  if (!state || mode !== "playing" || dist < 14) {
+  if (!state || mode !== "playing" || dist < 7) {
     el.hidden = true;
     return;
   }
@@ -1146,14 +1402,17 @@ function render() {
       if (!renderer.visible(piece.min, piece.max)) continue;
       renderer.draw(piece.mesh, IDENT);
     }
+    const faded = [];
     for (const chunk of world.chunks) {
       const mx = (chunk.min[0] + chunk.max[0]) / 2;
       const mz = (chunk.min[2] + chunk.max[2]) / 2;
       const d = dist2(cx, cz, mx, mz);
       if (d > 230 * 230) continue;
       if (!renderer.visible(chunk.min, chunk.max)) continue;
-      renderer.draw(d > 95 * 95 ? chunk.lod : chunk.mesh, IDENT);
+      if (viewHitsChunk(chunk)) faded.push(chunk);
+      else renderer.draw(d > 95 * 95 ? chunk.lod : chunk.mesh, IDENT);
     }
+    for (const chunk of faded) renderer.draw(chunk.mesh, IDENT, null, 0.34);
     for (const water of world.water) {
       if (!renderer.visible(water.min, water.max)) continue;
       renderer.drawWater(water.mesh, (state ? state.time : titleTime) * 0.02);
@@ -1170,29 +1429,40 @@ function render() {
 
 function layoutCamera() {
   if (mode === "title" || !state) {
-    const ang = titleTime * 0.01;
-    const eye = [Math.sin(ang) * 26, 12, 176 + Math.cos(ang) * 18];
-    const target = [0, 6, 176];
-    setCamera(eye, target, 52 * DEG);
+    const sway = Math.sin(titleTime * 0.015) * 1.1;
+    setCamera([sway, 3.4, 124], [sway * 0.08, 4.8, 176], 46 * DEG);
     return;
   }
-  const dist = state.inside ? 5.2 : state.riding === "car" ? 11 : state.riding ? 8.2 : 6.4;
-  const height = state.inside ? 2.4 : state.riding ? 4.1 : 3.05;
-  let eyeX = state.x - Math.sin(camYaw) * dist;
-  let eyeZ = state.z - Math.cos(camYaw) * dist;
-  const eyeY = state.y + height + Math.sin(blink * 30) * shake;
-  const grid = state.inside ? world.interiorGrids[state.inside] : world.grid;
-  for (let i = 8; i >= 1; i--) {
-    const t = i / 8;
-    const x = state.x + (eyeX - state.x) * t;
-    const z = state.z + (eyeZ - state.z) * t;
-    if (!pointBlocked(grid, x, z, 0.35)) {
-      eyeX = x;
-      eyeZ = z;
+  const dist = state.inside ? 5.4 : state.riding === "car" ? 10.2 : state.riding ? 8.1 : 6.6;
+  const height = state.inside ? 2.5 : state.riding === "car" ? 4.3 : state.riding ? 3.9 : 3.25;
+  const desiredX = state.x - Math.sin(camYaw) * dist;
+  const desiredZ = state.z - Math.cos(camYaw) * dist;
+  let eyeY = state.y + height + Math.sin(blink * 30) * shake;
+  const grid = state.inside ? world.interiorGrids[state.inside] : (world.cameraGrid || world.grid);
+  const steps = 18;
+  let clear = 1;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = state.x + (desiredX - state.x) * t;
+    const z = state.z + (desiredZ - state.z) * t;
+    if (pointBlocked(grid, x, z, 0.42)) {
+      clear = Math.max(0.16, (i - 2) / steps);
       break;
     }
   }
-  setCamera([eyeX, eyeY, eyeZ], [state.x, state.y + 1.25, state.z], (state.riding ? 64 : 58) * DEG);
+  let eyeX = state.x + (desiredX - state.x) * clear;
+  let eyeZ = state.z + (desiredZ - state.z) * clear;
+  if (clear < 0.78) eyeY += (0.78 - clear) * 4.2;
+  const dx = state.x - eyeX;
+  const dz = state.z - eyeZ;
+  const len = Math.hypot(dx, dz) || 1;
+  if (pointBlocked(grid, eyeX + (dx / len) * 0.85, eyeZ + (dz / len) * 0.85, 0.3)) {
+    clear = Math.max(0.14, clear - 0.18);
+    eyeX = state.x + (desiredX - state.x) * clear;
+    eyeZ = state.z + (desiredZ - state.z) * clear;
+    eyeY += 1.4;
+  }
+  setCamera([eyeX, eyeY, eyeZ], [state.x, state.y + 1.2, state.z], (state.riding ? 62 : 58) * DEG);
 }
 
 function setCamera(eye, target, fov) {
@@ -1253,20 +1523,27 @@ function drawActors() {
     drawProp(renderer, lib.boat, 0, worldGround(0, sim.paradeZ), sim.paradeZ, 0, 1, null);
   }
   if (state.riding === "car") drawCar(renderer, lib, state.x, state.y, state.z, state.yaw, wheelSpin, state.vehicleTint || [0.2, 0.4, 0.8], false, 0);
-    else if (state.riding === "scooter") {
+  else if (state.riding === "scooter") {
     drawScooter(renderer, lib, state.x, state.y, state.z, state.yaw, lean, wheelSpin, state.vehicleTint || [0.82, 0.16, 0.14]);
-    drawPerson(renderer, lib, state.x, state.y + 0.62, state.z, state.yaw, 0, false, [0.2, 0.55, 0.85], false);
+    drawRider(renderer, lib, state.x, state.y, state.z, state.yaw, [0.2, 0.55, 0.85]);
   } else drawPerson(renderer, lib, state.x, state.y, state.z, state.yaw, walkPhase, gameSpeed > 0.2, [0.2, 0.55, 0.85], false);
+  for (const item of world.interactables) {
+    if (item.type !== "npc" || world.npcs.some((n) => n.id === item.id)) continue;
+    if (dist2(px, pz, item.x, item.z) > 80 * 80) continue;
+    drawPerson(renderer, lib, item.x, worldGround(item.x, item.z), item.z, Math.atan2(px - item.x, pz - item.z), blink, false, item.tint || [0.4, 0.55, 0.8], false);
+  }
   if (state.job?.type === "crate" || (state.chapter || "").startsWith("under_crate")) {
     if (state.job?.type === "crate") drawProp(renderer, lib.crate, state.x, state.y + 1.1, state.z, state.yaw, 1, null);
   }
-  const goal = activeGoal();
-  const gDist = dist2(state.x, state.z, goal.x, goal.z);
-  if (gDist < 260 * 260) {
-    const gy = worldGround(goal.x, goal.z) + 2.6 + Math.sin(blink * 4) * 0.35;
-    const face = Math.atan2(state.x - goal.x, state.z - goal.z);
-    drawProp(renderer, lib.chevron, goal.x, gy, goal.z, face, 1.55, null);
-    drawProp(renderer, lib.sphere, goal.x, gy + 1.35, goal.z, 0, 0.55 + Math.sin(blink * 6) * 0.08, [1, 0.78, 0.2]);
+  drawGoalMarker(activeGoal());
+  const mine = world.parked.find((v) => v.id === "mine");
+  if (!state.riding && mine) {
+    const scooterDist = Math.hypot(mine.x - state.x, mine.z - state.z);
+    if (scooterDist < 140 && scooterDist > 2.5) {
+      const sy = worldGround(mine.x, mine.z);
+      drawProp(renderer, lib.ring, mine.x, sy + 0.08, mine.z, -blink * 0.7, 0.72, [1, 0.28, 0.22]);
+      if (scooterDist > 11) drawProp(renderer, lib.chevron, mine.x, sy + 3.3, mine.z, 0, 0.5, [0.95, 0.2, 0.16]);
+    }
   }
   if (race) {
     const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
@@ -1281,11 +1558,12 @@ function drawActorsTitle() {
 
 function projectUi() {
   const spots = [];
-  for (const label of world.labels) {
-    if (dist2(state.x, state.z, label.x, label.z) < 85 * 85) spots.push(label);
-  }
   for (const npc of world.npcs) {
-    if (dist2(state.x, state.z, npc.x, npc.z) < 16 * 16) spots.push({ text: npc.name, x: npc.x, y: 2.3, z: npc.z });
+    if (dist2(state.x, state.z, npc.x, npc.z) < 18 * 18) spots.push({ text: npc.name, x: npc.x, y: 2.15, z: npc.z });
+  }
+  for (const item of world.interactables) {
+    if (item.type !== "npc" || world.npcs.some((n) => n.id === item.id)) continue;
+    if (dist2(state.x, state.z, item.x, item.z) < 18 * 18) spots.push({ text: item.name, x: item.x, y: 2.15, z: item.z });
   }
   placeLayer($("labels"), "world-label", spots);
   const barks = sim.barks.map((b) => ({ text: b.text, x: b.x, y: b.y, z: b.z }));
@@ -1302,7 +1580,7 @@ function placeLayer(root, className, list) {
     const item = list[i];
     if (!item) { el.hidden = true; continue; }
     const p = renderer.project(item.x, item.y, item.z);
-    if (!p) { el.hidden = true; continue; }
+    if (!p || p.y < 158 || p.y > canvas.clientHeight - 88) { el.hidden = true; continue; }
     el.hidden = false;
     el.textContent = item.text;
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -120%)`;
@@ -1346,6 +1624,13 @@ function drawMinimap() {
   const goal = activeGoal();
   ctx.fillStyle = "#ffb703";
   ctx.fillRect((goal.x - state.x) * scale - 3, -(goal.z - state.z) * scale - 3, 6, 6);
+  ctx.fillStyle = "#ff4b4b";
+  for (const v of world.parked) {
+    if (v.id !== "mine") continue;
+    ctx.beginPath();
+    ctx.arc((v.x - state.x) * scale, -(v.z - state.z) * scale, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (state.wanted > 0) {
     ctx.fillStyle = "#ff5a5a";
     for (const cop of sim.police) ctx.fillRect((cop.x - state.x) * scale - 2, -(cop.z - state.z) * scale - 2, 4, 4);
@@ -1394,6 +1679,16 @@ function drawBigMap() {
   const goal = activeGoal();
   ctx.fillStyle = "#7dffa8";
   ctx.fillRect(X(goal.x) - 4, Y(goal.z) - 4, 8, 8);
+  ctx.fillStyle = "#ff4b4b";
+  ctx.font = "18px sans-serif";
+  for (const v of world.parked) {
+    if (v.id !== "mine") continue;
+    if (v.x < region.minX || v.x > region.maxX || v.z < region.minZ || v.z > region.maxZ) continue;
+    ctx.beginPath();
+    ctx.arc(X(v.x), Y(v.z), 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillText("紅色機車", X(v.x) + 10, Y(v.z) - 8);
+  }
   ctx.fillStyle = "#fff";
   ctx.beginPath();
   ctx.arc(X(state.x), Y(state.z), 6, 0, Math.PI * 2);

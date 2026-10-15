@@ -4,7 +4,7 @@ export const XS = [-150, -100, -50, 0, 50, 100, 150];
 export const ZS = [-150, -100, -50, 0, 50, 100, 150];
 
 export const ZONES = {
-  market: { minX: 52, maxX: 155, minZ: -155, maxZ: -52 },
+  market: { minX: 48, maxX: 152, minZ: -56, maxZ: 2 },
   park: { minX: 52, maxX: 155, minZ: 2, maxZ: 102 },
   star: { minX: -155, maxX: -52, minZ: -155, maxZ: -52 },
   kenting: { minX: -90, maxX: 150, minZ: -1120, maxZ: -820 },
@@ -17,6 +17,19 @@ export const PLACES = {
   homeDoor: { x: 25, z: 116 },
   tuna: { x: 16, z: -968 },
   parade: { x: 0, z: 0 },
+};
+
+// 夜市北口空地留給阿霞，攤位中間留一條直走得到的缺口。
+export const SPOTS = {
+  axia: { x: 84, z: -12 },
+  along: { x: 126, z: -42 },
+  vendor: { x: 68, z: -12 },
+  lili: { x: 84, z: -28 },
+  delivery: { x: 56, z: -12 },
+  ring: { x: 67, z: -28 },
+  balloon: { x: 116, z: -28 },
+  crate: { x: 132, z: -44 },
+  scooter: { x: 12, z: 108 },
 };
 
 export const RACE_POINTS = [
@@ -55,15 +68,15 @@ const AWNING = [hex(0xd64545), hex(0xf0b429), hex(0x2a9d8f), hex(0xe07a5f), hex(
 
 export const NPCS = [
   { id: "landlord", name: "陳桑", x: 30, z: 112, tint: [0.86, 0.55, 0.32] },
-  { id: "axia", name: "阿霞", x: 78, z: -100, tint: [0.9, 0.3, 0.38] },
-  { id: "along", name: "阿龍", x: 100, z: -142, tint: [0.15, 0.16, 0.2] },
+  { id: "axia", name: "阿霞", x: SPOTS.axia.x, z: SPOTS.axia.z, tint: [0.9, 0.3, 0.38] },
+  { id: "along", name: "阿龍", x: SPOTS.along.x, z: SPOTS.along.z, tint: [0.15, 0.16, 0.2] },
   { id: "azhi", name: "阿志", x: 0, z: -36, tint: [0.95, 0.78, 0.2] },
   { id: "amei", name: "阿美", x: -100, z: -92, tint: [0.45, 0.72, 0.55] },
   { id: "sushi", name: "小蘇", x: 0, z: 122, tint: [0.35, 0.55, 0.85] },
   { id: "acai", name: "阿財", x: 86, z: 36, tint: [0.75, 0.4, 0.25] },
-  { id: "lili", name: "莉莉", x: 118, z: -116, tint: [0.85, 0.45, 0.7] },
+  { id: "lili", name: "莉莉", x: SPOTS.lili.x, z: SPOTS.lili.z, tint: [0.85, 0.45, 0.7] },
   { id: "fisher", name: "漁販阿海", x: 16, z: -960, tint: [0.2, 0.45, 0.62] },
-  { id: "vendor", name: "黑輪伯", x: 90, z: -78, tint: [0.55, 0.32, 0.22] },
+  { id: "vendor", name: "黑輪伯", x: SPOTS.vendor.x, z: SPOTS.vendor.z, tint: [0.55, 0.32, 0.22] },
 ];
 
 export function highwayTFromZ(z) {
@@ -112,9 +125,9 @@ export function createWorld(renderer) {
   const labels = [];
   const sidewalks = [];
   const parked = [
-    { id: "mine", type: "scooter", x: 16, z: 110, yaw: 0.6, tint: [0.82, 0.16, 0.14], owned: true },
+    { id: "mine", type: "scooter", x: SPOTS.scooter.x, z: SPOTS.scooter.z, yaw: 0.4, tint: [0.86, 0.12, 0.1], owned: true },
     { id: "p1", type: "scooter", x: -12, z: 134, yaw: 1.4, tint: [0.2, 0.48, 0.86], owned: false },
-    { id: "p2", type: "scooter", x: 62, z: -58, yaw: -0.4, tint: [0.95, 0.78, 0.15], owned: false },
+    { id: "p2", type: "scooter", x: 46, z: 10, yaw: -0.4, tint: [0.95, 0.78, 0.15], owned: false },
     { id: "p3", type: "scooter", x: -70, z: 20, yaw: 2.2, tint: [0.35, 0.75, 0.55], owned: false },
     { id: "c1", type: "car", x: 36, z: 18, yaw: Math.PI, tint: [0.92, 0.55, 0.2], owned: false },
     { id: "c2", type: "car", x: -18, z: -18, yaw: 0.2, tint: [0.75, 0.8, 0.86], owned: false },
@@ -193,8 +206,44 @@ export function createWorld(renderer) {
     else put(x - w / 2 - 0.06, y, z, t, 1.05, d * 0.7, WINDOW, 1, false);
   }
 
+  function decorateFace(x, z, w, d, floors, face, accent, y0 = 0) {
+    const span = face.startsWith("z") ? w : d;
+    const cols = Math.max(2, Math.min(4, Math.round(span / 3.6)));
+    const fh = 3.15;
+    const h = floors * fh;
+    const along = (u) => (u + 0.5) / cols - 0.5;
+    if (face === "z+" || face === "z-") {
+      const zz = face === "z+" ? z + d / 2 + 0.08 : z - d / 2 - 0.08;
+      put(x, y0 + h * 0.46, zz, span * 0.9, h * 0.7, 0.1, accent, 0, false);
+    } else {
+      const xx = face === "x+" ? x + w / 2 + 0.08 : x - w / 2 - 0.08;
+      put(xx, y0 + h * 0.46, z, 0.1, h * 0.7, span * 0.9, accent, 0, false);
+    }
+    for (let f = 0; f < floors; f++) {
+      const wy = y0 + f * fh + 1.65;
+      for (let c = 0; c < cols; c++) {
+        const u = along(c) * span * 0.76;
+        if (face === "z+" || face === "z-") {
+          const zz = face === "z+" ? z + d / 2 + 0.16 : z - d / 2 - 0.16;
+          put(x + u, wy, zz, 0.72, 1.05, 0.08, WINDOW, 1, false);
+        } else {
+          const xx = face === "x+" ? x + w / 2 + 0.16 : x - w / 2 - 0.16;
+          put(xx, wy, z + u, 0.08, 1.05, 0.72, WINDOW, 1, false);
+        }
+      }
+    }
+    const sign = AWNING[Math.floor(rng() * AWNING.length)];
+    const sw = Math.min(4.4, span * 0.5);
+    if (face === "z+") put(x, y0 + 2.35, z + d / 2 + 0.24, sw, 0.72, 0.12, sign, 0, false);
+    else if (face === "z-") put(x, y0 + 2.35, z - d / 2 - 0.24, sw, 0.72, 0.12, sign, 0, false);
+    else if (face === "x+") put(x + w / 2 + 0.24, y0 + 2.35, z, 0.12, 0.72, sw, sign, 0, false);
+    else put(x - w / 2 - 0.24, y0 + 2.35, z, 0.12, 0.72, sw, sign, 0, false);
+  }
+
   function addBuilding(x, z, w, d, floors, style, wall, face) {
     const fh = 3.15;
+    const accent = style === "wood" ? hex(0xf0d7b4) : [hex(0xf7efe2), hex(0xe7d3c4), hex(0xd7e4ea), hex(0xf3e0c4)][Math.floor(rng() * 4)];
+    const side = face === "z+" || face === "z-" ? "x+" : "z+";
     if (style === "shop") {
       const posts = [
         [x - w / 2 + 0.28, z - d / 2 + 0.28],
@@ -205,7 +254,7 @@ export function createWorld(renderer) {
       for (const [px, pz] of posts) put(px, 1.5, pz, 0.36, 3, 0.36, wall, 0, true);
       const uh = Math.max(fh, (floors - 1) * fh);
       put(x, 3.1 + uh / 2, z, w, uh, d, wall, 0, true);
-      for (let f = 1; f < floors; f++) windowBand(x, 3.1 + f * fh * 0.92, z, w, d, face);
+      decorateFace(x, z, w, d, Math.max(1, floors - 1), face, accent, 3.1);
       const color = AWNING[Math.floor(rng() * AWNING.length)];
       if (face === "z+") put(x, 3.15, z + d / 2 + 0.55, w * 0.9, 0.12, 1.1, color, 0, false);
       else if (face === "z-") put(x, 3.15, z - d / 2 - 0.55, w * 0.9, 0.12, 1.1, color, 0, false);
@@ -216,18 +265,16 @@ export function createWorld(renderer) {
     } else if (style === "wood") {
       put(x, 1.6, z, w, 3.2, d, wall, 0, true);
       putRoof(x, 3.2, z, w + 0.6, 1.3, d + 0.6, ROOF);
-      windowBand(x, 1.8, z, w, d, face);
+      decorateFace(x, z, w, d, 1, face, accent, 0);
       put(x, 0.7, z, w + 0.2, 0.35, 0.2, WOOD_DARK, 0, false);
       collider(x, z, w * 0.92, d * 0.92, face, false);
     } else {
       const h = floors * fh;
       put(x, h / 2, z, w, h, d, wall, 0, true);
-      for (let f = 1; f < floors; f++) windowBand(x, f * fh + 1.2, z, w, d, face);
+      decorateFace(x, z, w, d, floors, face, accent, 0);
+      if (w > 8 && d > 8) decorateFace(x, z, w, d, floors, side, hex(0xd9c7b2), 0);
       put(x, h + 0.45, z - d * 0.15, 1.4, 0.9, 1.4, hex(0xb9c0c8), 0, false);
       put(x + w * 0.28, h + 0.35, z + d * 0.2, 0.7, 0.7, 0.7, hex(0x9aa3ad), 0, false);
-      if (floors >= 5) {
-        put(x, 2.2, z, w + 0.15, 0.12, 0.35, hex(0xded6c8), 0, false);
-      }
       collider(x, z, w, d, face, false);
     }
   }
@@ -266,23 +313,31 @@ export function createWorld(renderer) {
   function roadBox(x, y, z, sx, sy, sz, color) {
     cityRoads.box(x, y, z, sx, sy, sz, color, 0, 0);
   }
+  const CURB = hex(0xc4b8a6);
   for (const x of XS) {
-    roadBox(x, 0.05, 0, 12, 0.08, 312, ROAD);
+    roadBox(x, 0.08, 0, 12, 0.14, 312, ROAD);
     roadSegs.push({ x0: x, z0: -156, x1: x, z1: 156 });
-    for (let z = -140; z <= 140; z += 18) {
-      if (ZS.some((rz) => Math.abs(z - rz) < 8)) continue;
-      roadBox(x, 0.1, z, 0.16, 0.02, 8, LINE);
+    for (let i = 0; i < ZS.length - 1; i++) {
+      const z0 = ZS[i] + 9;
+      const z1 = ZS[i + 1] - 9;
+      const mid = (z0 + z1) / 2;
+      const len = Math.max(4, z1 - z0);
+      roadBox(x - 5.55, 0.1, mid, 0.42, 0.1, len, CURB);
+      roadBox(x + 5.55, 0.1, mid, 0.42, 0.1, len, CURB);
+      for (let z = z0 + 6; z < z1 - 4; z += 28) roadBox(x, 0.16, z, 0.46, 0.04, 5.5, LINE);
     }
   }
   for (let i = 0; i < ZS.length; i++) {
     const z = ZS[i];
     roadSegs.push({ x0: -156, z0: z, x1: 156, z1: z });
     for (let k = 0; k < XS.length - 1; k++) {
-      const x0 = XS[k] + 6;
-      const x1 = XS[k + 1] - 6;
+      const x0 = XS[k] + 8;
+      const x1 = XS[k + 1] - 8;
       const mid = (x0 + x1) / 2;
-      roadBox(mid, 0.05, z, x1 - x0, 0.08, 12, ROAD);
-      roadBox(mid, 0.1, z, Math.max(2, x1 - x0 - 4), 0.02, 0.16, LINE);
+      roadBox(mid, 0.08, z, x1 - x0, 0.14, 12, ROAD);
+      roadBox(mid, 0.1, z - 5.55, Math.max(2, x1 - x0), 0.1, 0.42, CURB);
+      roadBox(mid, 0.1, z + 5.55, Math.max(2, x1 - x0), 0.1, 0.42, CURB);
+      for (let x = x0 + 6; x < x1 - 4; x += 28) roadBox(x, 0.16, z, 5.5, 0.04, 0.46, LINE);
     }
   }
 
@@ -301,7 +356,7 @@ export function createWorld(renderer) {
       const nearStation = cz > 70;
       const floors = nearStation ? 5 + Math.floor(rng() * 3) : 3 + Math.floor(rng() * 3);
       const style = floors <= 4 && cz < 80 ? "shop" : "walkup";
-      const depth = Math.min(15, d - c);
+      const depth = Math.min(12.5, d - c);
       const zc = (c + d) / 2 - (d - c - depth) * 0.1;
       const gap = 2.6;
       const mid = (a + b) / 2;
@@ -381,23 +436,21 @@ export function createWorld(renderer) {
   for (let i = -2; i <= 2; i++) put(-100 + i * 1.2, 3.3, -100, 0.18, 0.18, 0.18, WINDOW, 2, false);
   labels.push({ text: "勝利星村", x: -100, y: 7, z: -100 });
 
-  // 屏東夜市
-  for (let i = 0; i < 11; i++) {
-    const x = 64 + i * 7;
-    const color = AWNING[i % AWNING.length];
-    for (const side of [-1, 1]) {
-      const z = -100 + side * 4.6;
-      put(x, 0.55, z, 3.2, 1.0, 1.6, hex(0x6b4a32), 0, true);
-      putRot(x, 2.15, z + side * 0.2, 3.6, 0.1, 2.4, 0, side * -0.25, color, 0);
-      put(x, 2.55, z, 0.16, 0.16, 0.16, WINDOW, 2, false);
-      colliders.push({ minX: x - 1.6, maxX: x + 1.6, minZ: z - 0.8, maxZ: z + 0.8 });
+  // 屏東夜市：北口空地放阿霞，兩排攤位中間留一條南北都能走的缺口。
+  const stallX = [62, 71, 93, 102, 111, 120, 129];
+  const stallZ = [-22, -34];
+  for (const x of stallX) {
+    for (const z of stallZ) {
+      const color = AWNING[(Math.abs(x + z) / 3 | 0) % AWNING.length];
+      put(x, 0.48, z, 2.6, 0.9, 1.35, hex(0x6b4a32), 0, true);
+      put(x - 1.15, 1.15, z - 0.5, 0.1, 2.1, 0.1, DARK, 0, false);
+      put(x + 1.15, 1.15, z + 0.5, 0.1, 2.1, 0.1, DARK, 0, false);
+      put(x, 2.15, z, 3.15, 0.1, 2.05, color, 0, false);
+      put(x, 2.4, z, 1.5, 0.38, 0.1, hex(0xfff6df), 0, false);
+      colliders.push({ minX: x - 1.15, maxX: x + 1.15, minZ: z - 0.55, maxZ: z + 0.55 });
     }
   }
-  for (let i = 0; i < 11; i++) {
-    const x = 64 + i * 7;
-    put(x, 3.55, -100, 0.55, 0.42, 0.55, AWNING[i % AWNING.length], 2, false);
-  }
-  labels.push({ text: "屏東夜市", x: 98, y: 6, z: -100 });
+  labels.push({ text: "屏東夜市", x: 96, y: 6, z: -24 });
 
   const carts = [[8, 28, 0], [-8, -28, 1], [108, 24, 2], [8, -36, 3], [-108, 40, 4]];
   carts.forEach(([x, z, i]) => {
@@ -581,14 +634,14 @@ export function createWorld(renderer) {
     { id: "home-door", type: "door", name: "租屋處", x: 25, z: 116, to: "home" },
     { id: "shop-door", type: "door", name: "星村店面", x: -100, z: -84, to: "shop" },
     { id: "convenience", type: "work", name: "屏東超商", x: -22, z: 126, job: "store" },
-    { id: "delivery", type: "delivery", name: "外送櫃台", x: 64, z: -78 },
-    { id: "ring", type: "minigame", name: "套圈圈", x: 132, z: -78, game: "ring" },
-    { id: "balloon", type: "minigame", name: "射氣球", x: 60, z: -132, game: "balloon" },
+    { id: "delivery", type: "delivery", name: "外送櫃台", x: SPOTS.delivery.x, z: SPOTS.delivery.z },
+    { id: "ring", type: "minigame", name: "套圈圈", x: SPOTS.ring.x, z: SPOTS.ring.z, game: "ring" },
+    { id: "balloon", type: "minigame", name: "射氣球", x: SPOTS.balloon.x, z: SPOTS.balloon.z, game: "balloon" },
     { id: "temple", type: "temple", name: "城隍小廟", x: -112, z: 34 },
     { id: "tag1", type: "tag", name: "圍牆", x: -70, z: 18 },
     { id: "tag2", type: "tag", name: "後巷牆", x: 22, z: -68 },
     { id: "tag3", type: "tag", name: "公園牆", x: 58, z: 18 },
-    { id: "crate", type: "crate", name: "鳳梨酥箱", x: 104, z: -132 },
+    { id: "crate", type: "crate", name: "鳳梨酥箱", x: SPOTS.crate.x, z: SPOTS.crate.z },
     { id: "tuna", type: "tuna", name: "黑鮪魚攤", x: 20, z: -968 },
   ];
   for (const n of NPCS) {
@@ -624,6 +677,13 @@ export function createWorld(renderer) {
   }
 
   const grid = new ColliderGrid(colliders, 24);
+  const cameraBlocks = colliders.map((c) => ({
+    minX: c.minX - 0.45,
+    maxX: c.maxX + 0.45,
+    minZ: c.minZ - 0.45,
+    maxZ: c.maxZ + 0.45,
+  }));
+  const cameraGrid = new ColliderGrid(cameraBlocks, 24);
   const clearWalks = sidewalks.filter((s) => !pointBlocked(grid, s.x, s.z, 0.6));
   const interiorGrids = {
     home: new ColliderGrid(interiors.home.colliders, 8),
@@ -638,6 +698,7 @@ export function createWorld(renderer) {
     colliders,
     covers,
     grid,
+    cameraGrid,
     interiorGrids,
     interiors,
     npcs: NPCS,

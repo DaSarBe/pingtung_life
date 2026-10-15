@@ -84,8 +84,30 @@ button {
   display: grid;
   place-items: center;
   padding: calc(16px + var(--sat)) calc(14px + var(--sar)) calc(16px + var(--sab)) calc(14px + var(--sal));
-  background: rgba(6, 7, 10, 0.28);
+  background: rgba(6, 7, 10, 0.94);
   pointer-events: auto;
+  z-index: 7;
+}
+#dialog.overlay {
+  z-index: 6;
+  background: transparent;
+  pointer-events: none;
+  align-items: start;
+  justify-content: center;
+  padding-top: calc(118px + var(--sat));
+}
+#settings.overlay {
+  z-index: 8;
+  background: #100e0c;
+}
+body.in-dialog #banner {
+  visibility: hidden;
+  pointer-events: none;
+}
+#dialog .card {
+  pointer-events: auto;
+  max-height: min(320px, calc(100dvh - 250px - var(--sat) - var(--sab)));
+  overflow: auto;
 }
 #title {
   position: absolute;
@@ -118,6 +140,22 @@ button {
 #stam { display: flex; align-items: center; gap: 8px; }
 #stam-track { width: 86px; height: 10px; border-radius: 99px; background: #3a342c; overflow: hidden; }
 #stam-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #ef7d4a, #b6d96a); }
+#stam.low #stam-fill { background: #e07a2f; }
+#stam.empty #stam-track { background: #a32020; box-shadow: inset 0 0 0 1px #ffb4a8; }
+#stam.empty #stam-fill { background: #ff8d8d; }
+#stam.low, #stam.empty { color: #ffd7bf; }
+#place-name {
+  max-width: 116px;
+  background: var(--panel);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: right;
+  color: var(--gold-2);
+}
 #top-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 #top-buttons { display: flex; gap: 6px; }
 #top-buttons button {
@@ -250,14 +288,25 @@ button {
 #banner {
   position: absolute;
   left: 50%;
-  top: calc(168px + var(--sat));
+  top: calc(188px + var(--sat));
   transform: translateX(-50%);
   width: min(520px, calc(100% - 24px));
-  background: rgba(20, 16, 12, 0.88);
+  background: rgba(20, 16, 12, 0.92);
+  border: 1px solid var(--gold);
   border-radius: 14px;
-  padding: 10px 14px;
-  font-size: 15px;
+  padding: 14px 16px;
+  font-size: 20px;
+  font-weight: 800;
   line-height: 1.45;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 4;
+}
+#banner .hint {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold-2);
 }
 #labels, #bubbles { position: absolute; inset: 0; overflow: hidden; }
 .world-label, .bark {
@@ -334,8 +383,16 @@ input[type="range"] { width: 58%; accent-color: var(--gold); height: 28px; }
 .check { justify-content: flex-start; min-height: 44px; }
 .check input { width: 22px; height: 22px; }
 #records { white-space: pre-wrap; color: #efe6d6; }
+.help-card { max-height: calc(100dvh - 36px - var(--sat) - var(--sab)); overflow: auto; }
 .help-card p { font-size: 15px; }
-.map-card, .mini-card { width: min(820px, calc(100% - 20px)); }
+.map-card, .mini-card { width: min(820px, calc(100% - 24px)); }
+.map-card {
+  max-height: calc(100dvh - 36px - var(--sat) - var(--sab));
+  overflow: auto;
+  padding-top: 20px;
+}
+#map.overlay { align-items: start; padding-top: calc(22px + var(--sat)); }
+.map-card .row { margin: 2px 0 14px; }
 #map-canvas, #mini-canvas {
   width: 100%;
   height: auto;
@@ -343,6 +400,23 @@ input[type="range"] { width: 58%; accent-color: var(--gold); height: 28px; }
   border-radius: 12px;
   touch-action: none;
 }
+#clock-debug {
+  position: absolute;
+  left: calc(12px + var(--sal));
+  bottom: calc(14px + var(--sab));
+  z-index: 4;
+  width: min(230px, calc(100% - 24px));
+  background: rgba(8, 10, 14, 0.88);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+body.show-touch #clock-debug { bottom: calc(168px + var(--sab)); }
 #dlg-name { color: var(--gold); font-weight: 800; margin-bottom: 6px; }
 #dlg-text { font-size: 18px; line-height: 1.6; min-height: 72px; }
 #dlg-choices { display: flex; flex-direction: column; }
@@ -377,6 +451,11 @@ body.raining #rain { opacity: 0.55; }
 @keyframes rain { to { transform: translateY(40px); } }
 
 @media (orientation: landscape) and (max-height: 520px) {
+  #dialog.overlay { padding-top: calc(78px + var(--sat)); }
+  #dialog .card { max-height: calc(100dvh - 150px - var(--sat) - var(--sab)); }
+  #banner { top: calc(132px + var(--sat)); font-size: 16px; }
+  #place-name { max-width: 88px; font-size: 12px; }
+  body.show-touch #clock-debug { bottom: calc(86px + var(--sab)); }
   .card h1 { font-size: 34px; }
   #title { place-items: center end; }
   #minimap { width: 84px; height: 84px; }

@@ -43,14 +43,18 @@ export function createLibrary(renderer) {
     b.box(0, 0.42, -0.48, 0.16, 0.12, 0.16, hex(0xc9a227), 0, 0);
   });
   lib.car = mesh(renderer, (b) => {
-    b.box(0, 0.48, 0, 1.72, 0.48, 4.05, hex(0xfbfbfb), 0, 1);
-    b.box(0, 0.98, -0.15, 1.52, 0.48, 2.05, hex(0xfbfbfb), 0, 1);
-    b.box(0, 1.02, -0.15, 1.36, 0.36, 1.7, GLASS, 0, 0);
-    b.box(0, 0.55, 1.55, 1.5, 0.28, 0.7, hex(0xfbfbfb), 0, 1);
-    b.box(0, 0.42, 1.95, 1.55, 0.12, 0.16, LIGHT, 2, 0);
-    b.box(0, 0.42, -1.95, 1.4, 0.12, 0.1, RED, 1, 0);
-    b.box(0, 0.32, 0, 1.78, 0.12, 3.4, DARK, 0, 0);
-    b.box(0, 1.28, -0.2, 0.7, 0.08, 0.28, DARK, 0, 0);
+    b.box(0, 0.42, 0.05, 1.68, 0.46, 3.7, hex(0xf7f7f5), 0, 1);
+    b.boxRot(0, 0.68, 1.15, 1.52, 0.18, 1.15, 0, -0.22, hex(0xf7f7f5), 0, 1);
+    b.box(0, 0.95, -0.28, 1.46, 0.48, 1.65, hex(0xf7f7f5), 0, 1);
+    b.box(0, 0.98, -0.22, 1.28, 0.36, 1.4, GLASS, 0, 0);
+    b.box(0, 0.36, 1.82, 1.5, 0.22, 0.28, hex(0xf7f7f5), 0, 1);
+    b.box(0, 0.4, 1.98, 1.35, 0.16, 0.1, LIGHT, 2, 0);
+    b.box(0, 0.38, 1.9, 0.7, 0.16, 0.08, hex(0x2a2e34), 0, 0);
+    b.box(0, 0.4, -1.9, 1.4, 0.18, 0.16, RED, 1, 0);
+    b.box(0, 0.28, 0, 1.74, 0.14, 3.5, DARK, 0, 0);
+    b.box(-0.78, 0.72, 0.35, 0.08, 0.16, 0.28, hex(0xd5dbe3), 0, 0);
+    b.box(0.78, 0.72, 0.35, 0.08, 0.16, 0.28, hex(0xd5dbe3), 0, 0);
+    b.box(0, 1.26, -0.25, 0.55, 0.06, 0.9, DARK, 0, 0);
   });
   lib.policeStripe = mesh(renderer, (b) => {
     b.box(0, 0.74, 0, 1.74, 0.08, 2.4, BLUE, 0, 0);
@@ -59,19 +63,25 @@ export function createLibrary(renderer) {
   lib.lightBlue = mesh(renderer, (b) => b.box(0, 0, 0, 0.22, 0.12, 0.14, BLUE, 2, 0));
 
   lib.head = mesh(renderer, (b) => {
-    b.sphere(0, 0, 0, 0.16, 8, SKIN, 0, 0);
-    b.sphere(0, 0.05, 0.02, 0.165, 8, HAIR, 0, 0);
-    b.box(0, 0.02, 0.14, 0.1, 0.025, 0.04, hex(0x222222), 0, 0);
+    b.sphere(0, 0, 0, 0.16, 10, SKIN, 0, 0);
+    b.sphere(0, 0.07, -0.01, 0.17, 8, HAIR, 0, 0);
+    b.sphere(-0.055, 0.02, 0.13, 0.026, 6, hex(0x1c1a18), 0, 0);
+    b.sphere(0.055, 0.02, 0.13, 0.026, 6, hex(0x1c1a18), 0, 0);
+    b.box(0, -0.02, 0.15, 0.05, 0.03, 0.04, hex(0xc9846a), 0, 0);
   });
   lib.torso = mesh(renderer, (b) => {
-    b.box(0, 0, 0, 0.4, 0.5, 0.22, hex(0xffffff), 0, 1);
+    b.box(0, 0.06, 0, 0.42, 0.34, 0.22, hex(0xffffff), 0, 1);
+    b.box(0, -0.16, 0, 0.34, 0.22, 0.2, hex(0xffffff), 0, 1);
+    b.sphere(0, 0.28, 0, 0.08, 6, SKIN2, 0, 0);
   });
   lib.arm = mesh(renderer, (b) => {
-    b.box(0, -0.24, 0, 0.1, 0.48, 0.1, SKIN2, 0, 0);
+    b.box(0, -0.16, 0, 0.09, 0.28, 0.09, hex(0xffffff), 0, 1);
+    b.box(0, -0.38, 0, 0.08, 0.26, 0.08, SKIN2, 0, 0);
   });
   lib.leg = mesh(renderer, (b) => {
-    b.box(0, -0.34, 0, 0.13, 0.66, 0.14, PANTS, 0, 0);
-    b.box(0, -0.7, 0.05, 0.14, 0.08, 0.24, SHOE, 0, 0);
+    b.box(0, -0.2, 0, 0.12, 0.36, 0.13, PANTS, 0, 0);
+    b.box(0, -0.48, 0.02, 0.11, 0.28, 0.12, PANTS, 0, 0);
+    b.box(0, -0.66, 0.06, 0.13, 0.08, 0.24, SHOE, 0, 0);
   });
   lib.hat = mesh(renderer, (b) => {
     b.cylinder(0, 0.08, 0, 0.12, 0.12, 8, BLUE, 0, 0, "y");
@@ -79,14 +89,17 @@ export function createLibrary(renderer) {
   });
   lib.person = mesh(renderer, (b) => {
     b.sphere(0, 1.58, 0, 0.16, 8, SKIN, 0, 0);
-    b.sphere(0, 1.64, 0.01, 0.16, 8, HAIR, 0, 0);
-    b.box(0, 1.16, 0, 0.4, 0.5, 0.22, hex(0xffffff), 0, 1);
-    b.box(-0.26, 0.95, 0, 0.1, 0.46, 0.1, SKIN2, 0, 0);
-    b.box(0.26, 0.95, 0, 0.1, 0.46, 0.1, SKIN2, 0, 0);
-    b.box(-0.1, 0.48, 0, 0.13, 0.7, 0.14, PANTS, 0, 0);
-    b.box(0.1, 0.48, 0, 0.13, 0.7, 0.14, PANTS, 0, 0);
-    b.box(-0.1, 0.08, 0.05, 0.14, 0.08, 0.24, SHOE, 0, 0);
-    b.box(0.1, 0.08, 0.05, 0.14, 0.08, 0.24, SHOE, 0, 0);
+    b.sphere(0, 1.66, -0.01, 0.16, 8, HAIR, 0, 0);
+    b.sphere(-0.05, 1.6, 0.12, 0.025, 5, hex(0x1c1a18), 0, 0);
+    b.sphere(0.05, 1.6, 0.12, 0.025, 5, hex(0x1c1a18), 0, 0);
+    b.box(0, 1.22, 0, 0.4, 0.32, 0.22, hex(0xffffff), 0, 1);
+    b.box(0, 0.98, 0, 0.32, 0.2, 0.18, hex(0xffffff), 0, 1);
+    b.box(-0.24, 1.02, 0, 0.09, 0.42, 0.09, SKIN2, 0, 0);
+    b.box(0.24, 1.02, 0, 0.09, 0.42, 0.09, SKIN2, 0, 0);
+    b.box(-0.1, 0.52, 0, 0.12, 0.62, 0.13, PANTS, 0, 0);
+    b.box(0.1, 0.52, 0, 0.12, 0.62, 0.13, PANTS, 0, 0);
+    b.box(-0.1, 0.12, 0.05, 0.13, 0.08, 0.22, SHOE, 0, 0);
+    b.box(0.1, 0.12, 0.05, 0.13, 0.08, 0.22, SHOE, 0, 0);
   });
   lib.heliBody = mesh(renderer, (b) => {
     b.box(0, 0, 0.1, 1.3, 0.7, 2.1, hex(0xf4f7fb), 0, 0);
@@ -126,6 +139,13 @@ export function createLibrary(renderer) {
     b.box(0, 0.9, 2.4, 1.8, 1.1, 0.12, hex(0xf7e7a1), 1, 0);
   });
   lib.sphere = mesh(renderer, (b) => b.sphere(0, 0, 0, 0.35, 8, LIGHT, 2, 0));
+  lib.ring = mesh(renderer, (b) => {
+    const seg = 18;
+    for (let i = 0; i < seg; i++) {
+      const a = (i / seg) * Math.PI * 2;
+      b.box(Math.cos(a) * 1.15, 0.06, Math.sin(a) * 1.15, 0.28, 0.08, 0.16, hex(0xffb703), 2, 1);
+    }
+  });
   lib.cone = mesh(renderer, (b) => b.cone(0, 0.6, 0, 0.8, 1.2, 6, hex(0xffb703), 2, 0));
   return lib;
 }
@@ -190,6 +210,26 @@ export function drawCar(renderer, lib, x, y, z, yaw, spin, tint, police = false,
     multiply(lamp, parent, local);
     renderer.draw(redOn ? lib.lightRed : lib.lightBlue, lamp, WHITE, 1, 0);
   }
+}
+
+export function drawRider(renderer, lib, x, y, z, yaw, tint) {
+  drawShadow(renderer, lib, x, y + 0.04, z, 0.55, 0.7);
+  beginMats();
+  const parent = mat();
+  compose(parent, x, y, z, yaw, 0, 0);
+  const put = (mesh, ox, oy, oz, pitch) => {
+    const local = mat();
+    const m = mat();
+    compose(local, ox, oy, oz, 0, pitch, 0);
+    multiply(m, parent, local);
+    renderer.draw(mesh, m, tint, 1, 0);
+  };
+  put(lib.torso, 0, 0.86, 0.04, 1.05);
+  put(lib.head, 0, 1.12, 0.36, 0.22);
+  put(lib.arm, -0.18, 1.02, 0.26, -0.9);
+  put(lib.arm, 0.18, 1.02, 0.26, -0.9);
+  put(lib.leg, -0.11, 0.74, 0.14, -0.7);
+  put(lib.leg, 0.11, 0.74, 0.14, -0.7);
 }
 
 export function drawPerson(renderer, lib, x, y, z, yaw, phase, moving, tint, hat = false) {

@@ -1,4 +1,4 @@
-import { RACE_POINTS } from "./world.js";
+import { RACE_POINTS, SPOTS } from "./world.js";
 import { CLOCK_RATE, skipToHour } from "./shift.js";
 
 export { RACE_POINTS };
@@ -15,13 +15,13 @@ export function goalFor(state) {
     case "intro":
       return { title: "去租屋處找房東陳桑", detail: "出車站後往東南方，橘色公寓一樓", x: 30, z: 112 };
     case "findjob":
-      return { title: "到屏東夜市找阿霞打一班工", detail: "夜市走道正中間，紅色上衣", x: 78, z: -100 };
+      return { title: "到屏東夜市找阿霞打一班工", detail: "夜市北口空地，紅色上衣，走到光圈裡按 E", x: SPOTS.axia.x, z: SPOTS.axia.z };
     case "choice":
-      return { title: "選擇你的路", detail: "回阿霞那裡走正路，或去南邊找阿龍", x: state.path === "under" ? 100 : 78, z: state.path === "under" ? -142 : -100 };
+      return { title: "選擇你的路", detail: "回阿霞那裡走正路，或去南邊找阿龍", x: state.path === "under" ? SPOTS.along.x : SPOTS.axia.x, z: state.path === "under" ? SPOTS.along.z : SPOTS.axia.z };
     case "honest_work":
-      return { title: `再打完工班（${Math.min(3, state.shifts)}/3）`, detail: "找阿霞或屏東超商上班", x: 78, z: -100 };
+      return { title: `再打完工班（${Math.min(3, state.shifts)}/3）`, detail: "找阿霞或屏東超商上班", x: SPOTS.axia.x, z: SPOTS.axia.z };
     case "honest_delivery":
-      return { title: `完成外送（${Math.min(3, state.deliveries)}/3）`, detail: "夜市北口的外送櫃台", x: 64, z: -78 };
+      return { title: `完成外送（${Math.min(3, state.deliveries)}/3）`, detail: "夜市北口的外送櫃台", x: SPOTS.delivery.x, z: SPOTS.delivery.z };
     case "honest_shop":
       return { title: money > 0 ? `存到店租，還差 ${money} 元` : "去勝利星村找阿美租店", detail: "外送、上班、夜市小遊戲都能賺錢", x: -100, z: -92 };
     case "honest_open":
@@ -35,11 +35,11 @@ export function goalFor(state) {
       return { title: `留下地盤記號（${state.tags.length}/3）`, detail: "三面牆：西邊、後巷、公園口", x: wall.x, z: wall.z };
     }
     case "under_crate":
-      return { title: `送出鳳梨酥箱（${Math.min(3, state.crates)}/3）`, detail: "箱子在夜市南邊，送到閃光點", x: state.job?.type === "crate" ? state.job.x : 104, z: state.job?.type === "crate" ? state.job.z : -132 };
+      return { title: `送出鳳梨酥箱（${Math.min(3, state.crates)}/3）`, detail: "箱子在夜市南邊，送到閃光點", x: state.job?.type === "crate" ? state.job.x : SPOTS.crate.x, z: state.job?.type === "crate" ? state.job.z : SPOTS.crate.z };
     case "under_recruit":
       return { title: `找三個夥伴（${Math.min(3, state.crew)}/3）`, detail: "小蘇在車站、阿財在公園、莉莉在夜市", x: nextRecruit(state).x, z: nextRecruit(state).z };
     case "under_heat":
-      return { title: "帶著四顆星回到阿龍身邊", detail: "通緝會維持一陣子，別被抓住", x: 100, z: -142 };
+      return { title: "帶著四顆星回到阿龍身邊", detail: "通緝會維持一陣子，別被抓住", x: SPOTS.along.x, z: SPOTS.along.z };
     case "honest_end":
     case "under_end":
     case "free":
@@ -62,7 +62,7 @@ function nearestTag(state) {
 function nextRecruit(state) {
   if (!state.flags.sushi) return { x: 0, z: 122 };
   if (!state.flags.acai) return { x: 86, z: 36 };
-  return { x: 118, z: -116 };
+  return { x: SPOTS.lili.x, z: SPOTS.lili.z };
 }
 
 export function interactItem(game, item) {
@@ -269,13 +269,14 @@ function talkNpc(game, id) {
   const state = game.state;
   if (id === "landlord") {
     game.say([
-      { name: "陳桑", text: "你就是新房客喔？房租我寬限幾天。機車在樓下，紅色那台，鑰匙拿去。" },
-      { name: "陳桑", text: "屏東不大，但很好活。想吃飯就去夜市找阿霞，她缺人手。" },
-    ]);
-    state.flags.metLandlord = true;
-    if (state.chapter === "intro") state.chapter = "findjob";
-    game.audio.sfx("talk");
-    game.save();
+      { name: "陳桑", text: "你就是新房客喔？房租我寬限幾天。紅色機車停在這棟公寓門口西側，小地圖上有一顆紅點。" },
+      { name: "陳桑", text: "走過去，靠近就會看到提示，按 F 就能騎，不用貼到車邊。想打工就去東南方的屏東夜市，找穿紅衣的阿霞，走到她面前按 E。" },
+    ], () => {
+      state.flags.metLandlord = true;
+      if (state.chapter === "intro") state.chapter = "findjob";
+      game.audio.sfx("talk");
+      game.save();
+    });
     return true;
   }
   if (id === "axia") {
@@ -286,7 +287,7 @@ function talkNpc(game, id) {
     if (!state.path && (state.chapter === "choice" || state.chapter === "findjob")) {
       const choices = [
         { label: "我跟著你做", run: () => choose(game, "honest") },
-        { label: "我想先听听阿龍", run: () => game.toast("阿龍在夜市南邊的路邊") },
+        { label: "我想先聽聽阿龍", run: () => game.toast("阿龍在夜市南邊的路邊") },
       ];
       if (state.chapter === "findjob") {
         game.say([
@@ -407,8 +408,34 @@ function talkNpc(game, id) {
     return true;
   }
   if (id === "sushi" || id === "acai" || id === "lili") return recruit(game, id);
+  if (typeof id === "string" && id.startsWith("tourist-")) return talkTourist(game, id);
   if (id === "fisher") return tunaStall(game);
   return false;
+}
+
+function talkTourist(game, id) {
+  const state = game.state;
+  game.say([
+    { name: "遊客", text: "不好意思，屏東車站要往哪走？我地圖轉暈了。" },
+    {
+      name: "遊客",
+      text: "你指個方向就好。",
+      choices: [
+        { label: "往北，過馬路就是", run: () => {
+          state.money += 100;
+          state.rep += 1;
+          game.toast("遊客塞了 100 元給你");
+          game.audio.sfx("coin");
+          game.world.interactables = game.world.interactables.filter((it) => it.id !== id);
+        } },
+        { label: "往海邊一直開", run: () => {
+          game.toast("遊客走向了完全相反的方向");
+          game.world.interactables = game.world.interactables.filter((it) => it.id !== id);
+        } },
+      ],
+    },
+  ]);
+  return true;
 }
 
 function choose(game, path) {
@@ -508,28 +535,48 @@ export function updateStory(game, dt) {
   }
 }
 
+function clearOfPeople(game, x, z) {
+  for (const n of game.world.npcs) {
+    if (Math.hypot(n.x - x, n.z - z) < 9) return false;
+  }
+  for (const it of game.world.interactables) {
+    if (Math.hypot(it.x - x, it.z - z) < 4) return false;
+  }
+  return true;
+}
+
 function rollEvent(game) {
   const roll = Math.random();
   if (roll < 0.34) {
-    game.say([
-      { name: "遊客", text: "不好意思，屏東車站要往哪走？我地圖轉暈了。" },
-      {
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const x = game.state.x + Math.sin(ang) * 8;
+      const z = game.state.z + Math.cos(ang) * 8;
+      if (!clearOfPeople(game, x, z)) continue;
+      game.world.interactables.push({
+        id: "tourist-" + Date.now(),
+        type: "npc",
         name: "遊客",
-        text: "你指個方向就好。",
-        choices: [
-          { label: "往北，過馬路就是", run: () => { game.state.money += 100; game.state.rep += 1; game.toast("遊客塞了 100 元給你"); game.audio.sfx("coin"); } },
-          { label: "往海邊一直開", run: () => game.toast("遊客走向了完全相反的方向") },
-        ],
-      },
-    ]);
+        x,
+        z,
+        tint: [0.35, 0.55, 0.85],
+      });
+      game.toast("附近有遊客在問路，走近按 E");
+      return;
+    }
   } else if (roll < 0.67) {
     game.state.rainUntil = game.state.time + 2 * 3600;
     game.toast("午後雷陣雨，騎慢一點");
   } else {
-    const x = game.state.x + 3;
-    const z = game.state.z + 2;
-    game.world.interactables.push({ id: "red-" + Date.now(), type: "pickup", name: "紅包", x, z, amount: 200 });
-    game.toast("地上好像有個紅包");
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const x = game.state.x + Math.cos(ang) * 7;
+      const z = game.state.z + Math.sin(ang) * 7;
+      if (!clearOfPeople(game, x, z)) continue;
+      game.world.interactables.push({ id: "red-" + Date.now(), type: "pickup", name: "紅包", x, z, amount: 200 });
+      game.toast("地上好像有個紅包");
+      return;
+    }
   }
 }
 
@@ -761,6 +808,11 @@ export function createActivities(canvas) {
     open,
     close: finish,
     active: () => !!kind,
+    snapshot() {
+      if (!kind || !data) return null;
+      if (kind === "ring" || kind === "balloon") return { kind, throws: data.throws, left: data.left, score: data.score };
+      return { kind, menu: data.menu, order: data.menu[data.orders[data.index]], index: data.index };
+    },
     update,
     draw,
     pointer,
