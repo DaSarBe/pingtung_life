@@ -17,15 +17,26 @@
   --joy: calc(98px * var(--ui-scale));
   --act: calc(54px * var(--ui-scale));
   --stack-top: calc(var(--edge) + var(--sat) + var(--minimap) + 8px);
-  --hint-top: calc(var(--stack-top) + 34px * var(--ui-scale));
+  /* game.js 會用 visualViewport 量到的高度覆寫成 px，處理手機網址列伸縮 */
+  --app-h: 100vh;
+  --pad-t: calc(12px + var(--sat));
+  --pad-b: calc(12px + var(--sab));
+  --pad-l: calc(14px + var(--sal));
+  --pad-r: calc(14px + var(--sar));
+  --btn-h: 52px;
+  --btn-font: 18px;
   color-scheme: dark;
+}
+
+@supports (height: 100dvh) {
+  :root { --app-h: 100dvh; }
 }
 
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
   height: 100%;
-  height: 100dvh;
+  height: var(--app-h);
   overflow: hidden;
   background: #090b10;
   color: var(--cream);
@@ -50,13 +61,21 @@ button { cursor: pointer; }
   left: 0;
   right: 0;
   top: 0;
-  height: 100dvh;
+  height: var(--app-h);
   pointer-events: none;
 }
 #ui button, #ui input, #ui label, .card { pointer-events: auto; }
 
 .card {
-  width: min(440px, calc(100% - 28px - var(--sal) - var(--sar)));
+  width: 100%;
+  max-width: 440px;
+  max-height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   background: var(--panel);
   border: 1px solid var(--line);
   border-left: 4px solid var(--gold);
@@ -73,38 +92,44 @@ button { cursor: pointer; }
 .tagline { color: #efe6d6; }
 
 button {
-  min-height: 52px;
+  min-height: var(--btn-h);
   border: 0;
   border-radius: 14px;
   background: var(--gold);
   color: #2a2112;
-  font-size: 18px;
+  font-size: var(--btn-font);
   font-weight: 700;
   padding: 0 16px;
+  line-height: 1.2;
 }
 .card button { width: 100%; margin-top: 8px; }
 .card button.secondary, .row button { background: #2a2622; color: var(--cream); }
 .row { display: flex; gap: 8px; }
 .row button { flex: 1; }
+.btn-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.btn-grid button { margin: 0; }
+.btn-grid button:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
+.sticky-btn { position: sticky; bottom: 0; box-shadow: 0 -10px 18px rgba(16, 14, 12, 0.85); }
 
 .overlay {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  padding: calc(16px + var(--sat)) calc(14px + var(--sar)) calc(16px + var(--sab)) calc(14px + var(--sal));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pad-t) var(--pad-r) var(--pad-b) var(--pad-l);
   background: rgba(6, 7, 10, 0.94);
   pointer-events: auto;
   z-index: 7;
 }
+.overlay > .card { flex: 0 1 auto; }
 #dialog.overlay {
   z-index: 6;
   background: transparent;
   pointer-events: none;
-  align-items: end;
-  justify-content: center;
-  padding-top: 28vh;
-  padding-bottom: calc(16px + var(--sab));
+  justify-content: flex-end;
+  padding-top: calc(var(--app-h) * 0.3);
 }
 #settings.overlay {
   z-index: 8;
@@ -112,14 +137,16 @@ button {
 }
 #dialog .card {
   pointer-events: auto;
-  max-height: min(320px, calc(100dvh - 250px - var(--sat) - var(--sab)));
-  overflow: auto;
+  max-width: 520px;
+  padding: 16px 18px 14px;
 }
 #title {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: end start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
   padding: calc(22px + var(--sat)) calc(18px + var(--sar)) calc(28px + var(--sab)) calc(22px + var(--sal));
   pointer-events: none;
 }
@@ -186,13 +213,24 @@ button {
   font-size: var(--hud-font);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
 }
-#goal {
+#cluster-tl {
   position: absolute;
   top: var(--stack-top);
   left: calc(var(--edge) + var(--sal));
-  max-width: min(52vw, calc(100% - 148px * var(--ui-scale)));
-  max-height: max(32px, calc(20dvh - var(--stack-top) - 6px));
+  width: min(52vw, calc(100% - 148px * var(--ui-scale)));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+#goal {
+  position: relative;
+  max-width: 100%;
+  max-height: max(32px, calc(var(--app-h) * 0.2 - var(--stack-top) - 6px));
   overflow: auto;
+  pointer-events: auto;
   margin: 0;
   display: block;
   text-align: left;
@@ -212,11 +250,7 @@ button {
 #goal-sub { display: none; margin-top: 3px; font-size: var(--float-font); font-weight: 700; opacity: 0.92; }
 #goal.expanded #goal-sub { display: block; }
 #hint {
-  position: absolute;
-  top: var(--hint-top);
-  left: calc(var(--edge) + var(--sal));
-  max-width: min(240px, 58vw);
-  z-index: 2;
+  max-width: min(240px, 100%);
   pointer-events: none;
 }
 .float-text, .world-label, .bark, #hint, #guide-dist {
@@ -358,23 +392,33 @@ input[type="range"] { width: 58%; accent-color: var(--gold); height: 28px; }
 .check { justify-content: flex-start; min-height: 44px; }
 .check input { width: 22px; height: 22px; }
 #records { white-space: pre-wrap; color: #efe6d6; }
-.help-card { max-height: calc(100dvh - 36px - var(--sat) - var(--sab)); overflow: auto; }
 .help-card p { font-size: 15px; }
-.map-card, .mini-card { width: min(820px, calc(100% - 24px)); }
-.map-card {
-  max-height: calc(100dvh - 36px - var(--sat) - var(--sab));
-  overflow: auto;
-  padding-top: 20px;
-}
-#map.overlay { align-items: start; padding-top: calc(22px + var(--sat)); }
+.help-card, .settings-card { padding-bottom: 0; }
+.help-card .sticky-btn, .settings-card .sticky-btn { margin-bottom: 0; }
+.help-card::after, .settings-card::after { content: ""; display: block; height: 14px; }
+.map-card { max-width: 820px; padding-top: 18px; }
+#map.overlay { justify-content: flex-start; }
 .map-card .row { margin: 2px 0 14px; }
+.map-card .row button { margin-top: 0; }
+.map-card .row button.active { background: var(--gold); color: #2a2112; }
+.mini-card {
+  --mini-w: min(calc(100vw - var(--sal) - var(--sar) - 56px), 760px);
+  width: auto;
+  max-width: none;
+  padding: 14px 14px 14px 16px;
+}
+.mini-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.mini-head h2 { margin: 0; font-size: 22px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-head button { width: auto; flex: 0 0 auto; margin: 0; min-width: 96px; background: #2a2622; color: var(--cream); border: 1px solid var(--line); }
 #map-canvas, #mini-canvas {
+  display: block;
   width: 100%;
   height: auto;
   background: #121820;
   border-radius: 12px;
   touch-action: none;
 }
+#mini-canvas { width: var(--mini-w); }
 #clock-debug {
   position: absolute;
   left: calc(12px + var(--sal));
@@ -397,7 +441,7 @@ body.show-touch #clock-debug {
   width: min(200px, 46vw);
 }
 #dlg-name { color: var(--gold); font-weight: 800; margin-bottom: 6px; }
-#dlg-text { font-size: 18px; line-height: 1.6; min-height: 72px; }
+#dlg-text { font-size: 18px; line-height: 1.6; min-height: 0; margin-bottom: 6px; }
 #dlg-choices { display: flex; flex-direction: column; }
 
 #fade {
@@ -437,15 +481,73 @@ body.raining #rain { opacity: 0.55; }
     --minimap: calc(70px * var(--ui-scale));
     --joy: calc(78px * var(--ui-scale));
     --act: calc(46px * var(--ui-scale));
+    --pad-t: calc(8px + var(--sat));
+    --pad-b: calc(8px + var(--sab));
+    --pad-l: calc(12px + var(--sal));
+    --pad-r: calc(12px + var(--sar));
+    --btn-h: 44px;
+    --btn-font: 16px;
   }
-  #dialog.overlay { padding-top: 8vh; }
-  #dialog .card { max-height: calc(100dvh - 120px - var(--sat) - var(--sab)); }
-  .card h1 { font-size: 34px; }
-  #title { place-items: center end; }
-  #goal, #hint {
-    max-width: calc(20vw - var(--edge) - var(--sal) - 4px);
+  .card { padding: 14px 16px 12px; border-radius: 14px; }
+  .card h1 { font-size: 30px; margin-bottom: 4px; }
+  .card h2 { font-size: 20px; margin-bottom: 6px; }
+  .card p { font-size: 14px; line-height: 1.5; margin-bottom: 8px; }
+  .card button { margin-top: 6px; }
+  label { margin: 4px 0; font-size: 15px; min-height: 40px; }
+
+  #title {
+    align-items: flex-end;
+    justify-content: center;
+    padding: calc(10px + var(--sat)) calc(14px + var(--sar)) calc(10px + var(--sab)) calc(14px + var(--sal));
   }
-  #goal { max-height: min(42dvh, 150px); }
+  .title-card { max-width: 400px; }
+
+  /* 對話像字幕一樣貼在下方，最多佔畫面下半部，正中央留給玩家 */
+  #dialog.overlay { padding-top: calc(var(--app-h) * 0.42); padding-bottom: calc(6px + var(--sab)); }
+  #dialog .card { max-width: 640px; padding: 10px 14px 10px; }
+  #dlg-name { font-size: 14px; margin-bottom: 2px; }
+  #dlg-text { font-size: 15px; line-height: 1.5; margin-bottom: 4px; }
+  #dlg-choices { flex-direction: row; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  #dlg-choices button { flex: 1 1 140px; width: auto; margin-top: 2px; padding: 0 12px; }
+  #dlg-choices button.next { flex: 0 0 auto; min-width: 140px; }
+
+  #pause .card { max-width: 620px; }
+  #quest-full { font-size: 15px; font-weight: 700; }
+  #records { font-size: 13px; }
+  .btn-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .btn-grid button:first-child:nth-last-child(odd) { grid-column: auto; }
+  #ending .card { max-width: 560px; }
+  #ending .btn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .settings-card { max-width: 600px; }
+  .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+  .help-card { max-width: 680px; }
+  .help-card p { font-size: 14px; }
+
+  #map.overlay { justify-content: center; }
+  .map-card {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    width: auto;
+    max-width: none;
+    height: 100%;
+    padding: 10px;
+    overflow: hidden;
+  }
+  .map-card .row { flex-direction: column; margin: 0; width: 104px; flex: 0 0 auto; }
+  .map-card .row button { flex: 0 0 auto; }
+  #map-canvas { width: auto; height: 100%; aspect-ratio: 1; }
+
+  .mini-card {
+    --mini-w: min(calc(100vw - var(--sal) - var(--sar) - 48px), calc((var(--app-h) - var(--sat) - var(--sab) - 104px) * 16 / 9), 760px);
+    padding: 10px 12px 12px;
+  }
+  .mini-head { margin-bottom: 8px; }
+  .mini-head h2 { font-size: 18px; }
+
+  #cluster-tl { width: min(240px, 30vw); }
+  #goal { max-height: min(calc(var(--app-h) * 0.42), 150px); }
 }
 @media (max-width: 420px) and (orientation: portrait) {
   .card h1 { font-size: 38px; }

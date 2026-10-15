@@ -78,7 +78,17 @@ const game = {
   enter, exitInterior, save, showEnding, addMoney, addWanted, removeInteract, fade,
 };
 
+function syncViewport() {
+  const vv = window.visualViewport;
+  const h = vv && vv.height > 0 ? Math.min(vv.height, window.innerHeight || vv.height) : window.innerHeight;
+  if (h > 0) document.documentElement.style.setProperty("--app-h", `${Math.round(h)}px`);
+}
+
 function boot() {
+  syncViewport();
+  window.addEventListener("resize", syncViewport);
+  window.addEventListener("orientationchange", () => window.setTimeout(syncViewport, 250));
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", syncViewport);
   try {
     renderer = createRenderer(canvas);
     lib = createLibrary(renderer);
@@ -188,7 +198,9 @@ function bindInput() {
     keys[e.code] = true;
     audio.resume();
     if (mode === "dialog") {
-      if (e.code === "Enter" || e.code === "KeyE") advanceDialog();
+      const pick = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+      if (pick) pickChoice(Number(pick[1]) - 1);
+      else if (e.code === "Enter" || e.code === "KeyE") advanceDialog();
       return;
     }
     if (mode === "mini") {
@@ -201,7 +213,7 @@ function bindInput() {
     if (e.code === "KeyH") { honk(sim); audio.sfx("horn"); }
     if (e.code === "KeyM") toggleMap();
     if (e.code === "Escape") {
-      if (mode === "map" || mode === "help" || mode === "settings") closeOverlays();
+      if (!$("settings").hidden || !$("help").hidden || mode === "map") closeOverlays();
       else if (mode === "playing") openPause();
       else if (mode === "pause") closePause();
     }
@@ -314,10 +326,7 @@ function bindInput() {
   $("btn-pause-settings").addEventListener("click", () => openSettings("pause"));
   $("btn-map").addEventListener("click", () => { $("pause").hidden = true; openMap(); });
   $("btn-title").addEventListener("click", toTitle);
-  $("settings-close").addEventListener("click", () => {
-    $("settings").hidden = true;
-    if (settingsReturn === "pause") $("pause").hidden = false;
-  });
+  $("settings-close").addEventListener("click", closeSettings);
   $("music-vol").addEventListener("input", (e) => {
     board.music = Number(e.target.value) / 100;
     audio.setMusicVolume(board.music);
@@ -338,8 +347,8 @@ function bindInput() {
     writeBoard(board);
   });
   $("map-close").addEventListener("click", () => { $("map").hidden = true; if (mode === "map") mode = "playing"; });
-  $("map-city").addEventListener("click", () => { mapRegion = "city"; });
-  $("map-kenting").addEventListener("click", () => { mapRegion = "kenting"; });
+  $("map-city").addEventListener("click", () => setMapRegion("city"));
+  $("map-kenting").addEventListener("click", () => setMapRegion("kenting"));
   $("mini-canvas").addEventListener("pointerdown", (e) => activities.pointer(e));
   $("mini-close").addEventListener("click", closeMini);
   $("ending-free").addEventListener("click", () => {
@@ -384,6 +393,10 @@ function openSettings(from) {
   $("settings").hidden = false;
   audio.resume();
 }
+function closeSettings() {
+  $("settings").hidden = true;
+  if (settingsReturn === "pause" && mode === "pause") $("pause").hidden = false;
+}
 function openPause() {
   if (!state || mode === "title") return;
   mode = "pause";
@@ -395,14 +408,20 @@ function closePause() {
   if (mode === "pause") mode = "playing";
 }
 function closeOverlays() {
+  if (!$("settings").hidden) { closeSettings(); return; }
+  if (!$("help").hidden) { $("help").hidden = true; return; }
   $("map").hidden = true;
-  $("help").hidden = true;
-  $("settings").hidden = true;
   if (mode === "map") mode = "playing";
+}
+function setMapRegion(region) {
+  mapRegion = region;
+  $("map-city").classList.toggle("active", region === "city");
+  $("map-kenting").classList.toggle("active", region === "kenting");
 }
 function openMap() {
   if (!state) return;
   mode = "map";
+  setMapRegion(state.z < -500 ? "kenting" : "city");
   $("map").hidden = false;
 }
 function toggleMap() {
@@ -447,25 +466,31 @@ function renderDialog() {
   const box = $("dlg-choices");
   box.replaceChildren();
   if (line.choices) {
-    for (const choice of line.choices) {
+    line.choices.forEach((choice, index) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = choice.label;
-      button.addEventListener("click", () => {
-        dialog = null;
-        el.hidden = true;
-        if (mode === "dialog") mode = "playing";
-        choice.run();
-      });
+      button.addEventListener("click", () => pickChoice(index));
       box.appendChild(button);
-    }
+    });
   } else {
     const button = document.createElement("button");
     button.type = "button";
+    button.className = "next";
     button.textContent = dialog.i < dialog.lines.length - 1 ? "繼續" : "好";
     button.addEventListener("click", advanceDialog);
     box.appendChild(button);
   }
+  el.querySelector(".card").scrollTop = 0;
+}
+function pickChoice(index) {
+  const line = dialog && dialog.lines[dialog.i];
+  const choice = line && line.choices && line.choices[index];
+  if (!choice) return;
+  dialog = null;
+  $("dialog").hidden = true;
+  if (mode === "dialog") mode = "playing";
+  choice.run();
 }
 function advanceDialog() {
   if (!dialog) return;
@@ -675,7 +700,7 @@ function update(dt, clockDt = dt) {
     activities.draw();
     if (!activities.active()) {
       $("mini").hidden = true;
-      mode = "playing";
+      if (mode === "mini") mode = "playing";
     }
   } else if (mode === "dialog" || mode === "pause" || mode === "ending") {
     /* 對話、暫停、結局時世界與時鐘都停著；大地圖與小遊戲仍在 update 外面推進時鐘 */
@@ -1744,8 +1769,11 @@ function drawBigMap() {
     ctx.lineTo(X(s.x1), Y(s.z1));
     ctx.stroke();
   }
+  // 地圖在橫式會縮得很小，字級跟著實際顯示寬度放大，螢幕上至少約 12px
+  const px = Math.max(1, w / Math.max(1, c.clientWidth || w));
+  const labelFont = Math.round(Math.max(20, 12 * px));
   ctx.fillStyle = "#ffb703";
-  ctx.font = "20px sans-serif";
+  ctx.font = `${labelFont}px sans-serif`;
   for (const label of world.labels) {
     if (label.x < region.minX || label.x > region.maxX || label.z < region.minZ || label.z > region.maxZ) continue;
     ctx.fillText(label.text, X(label.x) + 4, Y(label.z));
@@ -1763,7 +1791,7 @@ function drawBigMap() {
     ctx.fillText(npc.name, X(npc.x) + 8, Y(npc.z) - 6);
   }
   ctx.fillStyle = "#ff4b4b";
-  ctx.font = "18px sans-serif";
+  ctx.font = `${Math.round(labelFont * 0.9)}px sans-serif`;
   for (const v of world.parked) {
     if (v.id !== "mine") continue;
     if (v.x < region.minX || v.x > region.maxX || v.z < region.minZ || v.z > region.maxZ) continue;
