@@ -35,7 +35,10 @@ let race = null;
 let mapRegion = "city";
 let settingsReturn = "title";
 let toastTimer = 0;
-let bannerUntil = 0;
+let toastText = "";
+let placeText = "";
+let promptText = "";
+const goalPopup = { key: "", until: 0, pinned: false, expanded: false };
 let saveTimer = 0;
 let eventTimer = 8;
 let blink = 0;
@@ -108,8 +111,9 @@ function boot() {
       setCameraYaw(y) { camYaw = wrapAngle(y); lookHold = 1.2; },
       get chapter() { return state && state.chapter; },
       get goal() { return state ? activeGoal() : null; },
-      get prompt() { return $("prompt").hidden ? "" : $("prompt").textContent; },
-      get place() { return $("place-name").hidden ? "" : $("place-name").textContent; },
+      get prompt() { return promptText; },
+      get place() { return placeText; },
+      get hint() { const el = $("hint"); return el.hidden ? "" : el.textContent; },
       get pos() { return state ? { x: state.x, y: state.y, z: state.z, yaw: state.yaw, riding: state.riding, stamina: state.stamina } : null; },
       setYaw(y) { if (state) { state.yaw = y; camYaw = y; lookHold = 0; } },
       blocked(x, z, r = 0.34) { return pointBlocked(state && state.inside ? world.interiorGrids[state.inside] : world.grid, x, z, r); },
@@ -135,7 +139,10 @@ function applyAudio() {
   $("sfx-vol").value = String(Math.round(board.sfx * 100));
   $("mute-check").checked = board.mute;
   $("touch-check").checked = board.showTouch === "on";
-  $("btn-mute").textContent = board.mute ? "靜" : "♪";
+  const scale = Number(board.uiScale) || 1;
+  board.uiScale = scale;
+  document.documentElement.style.setProperty("--ui-scale", String(scale));
+  $("ui-scale").value = String(Math.round(scale * 100));
 }
 
 function freshState() {
@@ -161,9 +168,9 @@ function beginPlaying(next, banner) {
   $("hud").hidden = false;
   $("pause").hidden = true;
   $("ending").hidden = true;
-  if (banner) {
-    showBanner("WASD 移動，空白鍵加速，E 跟人說話，F 上下車。騎車時方向跟著車頭，鏡頭會跟在車後。");
-  }
+  goalPopup.key = "";
+  goalPopup.pinned = false;
+  goalPopup.until = 0;
   audio.resume();
   audio.setScene(sceneName(), true);
   save();
@@ -255,7 +262,15 @@ function bindInput() {
     audio.resume();
     if (mode === "playing") input.vehicleQueued = true;
   });
-  $("banner").addEventListener("click", () => { $("banner").hidden = true; bannerUntil = 0; });
+  $("goal").addEventListener("click", () => {
+    goalPopup.pinned = !goalPopup.pinned;
+    if (!goalPopup.pinned) goalPopup.until = 0;
+  });
+  $("ui-scale").addEventListener("input", (e) => {
+    board.uiScale = Number(e.target.value) / 100;
+    document.documentElement.style.setProperty("--ui-scale", String(board.uiScale));
+    writeBoard(board);
+  });
 
   canvas.addEventListener("pointerdown", (e) => {
     if (mode !== "playing" || (e.button != null && e.button !== 0)) return;
@@ -295,11 +310,6 @@ function bindInput() {
   $("btn-pause-settings").addEventListener("click", () => openSettings("pause"));
   $("btn-map").addEventListener("click", () => { $("pause").hidden = true; openMap(); });
   $("btn-title").addEventListener("click", toTitle);
-  $("btn-mute").addEventListener("click", () => {
-    board.mute = !board.mute;
-    applyAudio();
-    writeBoard(board);
-  });
   $("settings-close").addEventListener("click", () => {
     $("settings").hidden = true;
     if (settingsReturn === "pause") $("pause").hidden = false;
@@ -461,23 +471,8 @@ function advanceDialog() {
   else renderDialog();
 }
 
-function showBanner(text, ms = 18000) {
-  const el = $("banner");
-  el.replaceChildren();
-  const line = document.createElement("div");
-  line.textContent = text;
-  const hint = document.createElement("div");
-  hint.className = "hint";
-  hint.textContent = "點一下關閉";
-  el.append(line, hint);
-  el.hidden = false;
-  bannerUntil = performance.now() + ms;
-}
-
 function toast(text) {
-  const el = $("toast");
-  el.hidden = false;
-  el.textContent = text;
+  toastText = text;
   toastTimer = 2.6;
 }
 function fade(fn) {
@@ -661,10 +656,6 @@ function update(dt, clockDt = dt) {
     if (runClock) clockDebug.running += clockDt;
     if (clockDebug.origin == null) clockDebug.origin = state.time;
   }
-  if (mode === "playing" && !state.inside && !state.flags.marketHint && inZone("market", state.x, state.z)) {
-    state.flags.marketHint = true;
-    showBanner("走到紅衣阿霞前按 E。她穿紅色上衣，腳下有一圈光。");
-  }
   document.body.classList.toggle("raining", state.time < state.rainUntil && !state.inside);
   if (mode === "playing") {
     updatePlayer(dt);
@@ -687,13 +678,10 @@ function update(dt, clockDt = dt) {
   }
   if (toastTimer > 0) {
     toastTimer -= dt;
-    if (toastTimer <= 0) $("toast").hidden = true;
+    if (toastTimer <= 0) toastText = "";
   }
   document.body.classList.toggle("in-dialog", mode === "dialog");
-  if (bannerUntil && mode !== "dialog" && performance.now() > bannerUntil) {
-    $("banner").hidden = true;
-    bannerUntil = 0;
-  }
+  document.body.classList.toggle("cine", mode === "dialog" || mode === "ending");
   audio.setScene(sceneName());
   audio.update();
   audio.tickSiren();
@@ -772,7 +760,10 @@ function updatePlayer(dt) {
   } else {
     const max = (riding === "car" ? 34 : 24) * rain;
     const accel = riding === "car" ? 12 : 15;
-    if (vehicleThrust) speedV = Math.min(max, speedV + accel * dt);
+    if (vehicleThrust) {
+      speedV = Math.min(max, speedV + accel * dt);
+      if (!state.flags.taughtRide) markTaught("taughtRide");
+    }
     else if (nz < -0.35 || keys.KeyS || keys.ArrowDown) speedV = Math.max(-6, speedV - accel * dt);
     else speedV *= Math.exp(-1.35 * dt);
     const turnRate = (riding === "car" ? 1.5 : 2.2) * clamp(Math.abs(speedV) / 8, 0.28, 1);
@@ -816,8 +807,10 @@ function updatePlayer(dt) {
   if (input.interactQueued) {
     input.interactQueued = false;
     const item = nearestInteract();
-    if (item) interactItem(game, item);
-    else if (state.riding) toast("附近沒有可互動的東西");
+    if (item) {
+      interactItem(game, item);
+      if (mode === "dialog") markTaught("taughtTalk");
+    } else if (state.riding) toast("附近沒有可互動的東西");
   }
   if (input.vehicleQueued) {
     input.vehicleQueued = false;
@@ -1155,22 +1148,38 @@ function interactPrompt(item) {
   return `按 E ${item.name}`;
 }
 
-function updatePlaceName() {
-  const el = $("place-name");
-  if (!state) { el.hidden = true; return; }
-  if (state.inside) {
-    el.hidden = false;
-    el.textContent = state.inside === "jail" ? "派出所裡" : state.inside === "shop" ? "店裡" : "家裡";
-    return;
-  }
+function currentPlace() {
+  if (!state) return "";
+  if (state.inside) return state.inside === "jail" ? "派出所裡" : state.inside === "shop" ? "店裡" : "家裡";
   let best = null;
   let bestD = 75 * 75;
   for (const label of world.labels) {
     const d = dist2(state.x, state.z, label.x, label.z);
     if (d < bestD) { bestD = d; best = label; }
   }
-  el.hidden = !best;
-  if (best) el.textContent = best.text;
+  return best ? best.text : "";
+}
+
+function markTaught(flag) {
+  if (!state.flags || typeof state.flags !== "object") state.flags = {};
+  if (state.flags[flag]) return;
+  state.flags[flag] = true;
+  save();
+}
+
+function npcNearby(meters) {
+  const reach = meters * meters;
+  for (const npc of world.npcs) {
+    if (dist2(state.x, state.z, npc.x, npc.z) <= reach) return true;
+  }
+  return false;
+}
+
+function activeTutorial() {
+  if (!state || mode !== "playing" || state.inside) return "";
+  if (state.riding && !state.flags.taughtRide) return "按住加速，車會跟著車頭往前";
+  if (!state.flags.taughtTalk && npcNearby(8)) return "按 E 跟對方說話";
+  return "";
 }
 
 function toggleClockDebug() {
@@ -1220,13 +1229,31 @@ function renderClockDebug() {
 }
 
 function drawGoalMarker(goal) {
-  const gDist = Math.hypot(goal.x - state.x, goal.z - state.z);
-  const gy = worldGround(goal.x, goal.z);
-  if (gDist < 90) drawProp(renderer, lib.ring, goal.x, gy + 0.08, goal.z, blink * 0.5, 1.2, null);
-  if (gDist > 16 && gDist < 260) {
-    const y = gy + 5.2 + Math.sin(blink * 4) * 0.2;
-    const face = Math.atan2(state.x - goal.x, state.z - goal.z);
-    drawProp(renderer, lib.chevron, goal.x, y, goal.z, face, 0.8, null);
+  const marks = [];
+  const push = (x, z, tint) => {
+    if (marks.some((m) => Math.hypot(m.x - x, m.z - z) < 2)) return;
+    marks.push({ x, z, tint });
+  };
+  for (const id of ["landlord", "axia"]) {
+    const npc = world.npcs.find((n) => n.id === id);
+    if (npc) push(npc.x, npc.z, id === "axia" ? [1, 0.45, 0.52] : [1, 0.86, 0.35]);
+  }
+  const mine = world.parked.find((v) => v.id === "mine");
+  if (!state.riding && mine) push(mine.x, mine.z, [1, 0.28, 0.22]);
+  if (goal) push(goal.x, goal.z, [1, 0.78, 0.25]);
+  for (const mark of marks) {
+    const d = Math.hypot(mark.x - state.x, mark.z - state.z);
+    const gy = worldGround(mark.x, mark.z);
+    if (d > 8 && d < 260) drawProp(renderer, lib.beam, mark.x, gy, mark.z, 0, 1, mark.tint);
+    if (goal && Math.hypot(mark.x - goal.x, mark.z - goal.z) < 2 && d < 90) {
+      drawProp(renderer, lib.ring, mark.x, gy + 0.08, mark.z, blink * 0.5, 1.15, null);
+    }
+  }
+  if (!state.riding && mine) {
+    const scooterDist = Math.hypot(mine.x - state.x, mine.z - state.z);
+    if (scooterDist > 2.5 && scooterDist < 90 && !marks.some((m) => m.x === mine.x && Math.hypot(m.x - goal.x, m.z - goal.z) < 2)) {
+      drawProp(renderer, lib.ring, mine.x, worldGround(mine.x, mine.z) + 0.08, mine.z, -blink * 0.7, 0.72, [1, 0.28, 0.22]);
+    }
   }
 }
 
@@ -1257,47 +1284,61 @@ function updateHud() {
   $("clock").textContent = formatClock(state.time);
   const stars = "★★★★★".slice(0, state.wanted) + "☆☆☆☆☆".slice(state.wanted);
   $("stars").textContent = stars;
-  $("stam-fill").style.width = `${clamp(state.stamina, 0, 100)}%`;
+  const showStam = moveKind === "sprint" || state.stamina < 28;
   const stam = $("stam");
-  stam.classList.toggle("empty", state.stamina <= 8);
-  stam.classList.toggle("low", state.stamina > 8 && state.stamina < 28);
-  $("stam-label").textContent = state.stamina <= 8 ? "體力用完" : state.stamina < 28 ? "體力不足" : "體力";
-  updatePlaceName();
+  stam.hidden = !showStam;
+  if (showStam) {
+    $("stam-fill").style.width = `${clamp(state.stamina, 0, 100)}%`;
+    stam.classList.toggle("empty", state.stamina <= 8);
+    stam.classList.toggle("low", state.stamina > 8 && state.stamina < 28);
+    $("stam-label").textContent = state.stamina <= 8 ? "體力用完" : state.stamina < 28 ? "體力不足" : "體力";
+  }
+  placeText = currentPlace();
   renderClockDebug();
-  $("goal-title").textContent = goal.title;
-  $("goal-sub").textContent = goal.detail || "";
+  syncGoalCard(goal);
+  renderHint();
   const dx = goal.x - state.x;
   const dz = goal.z - state.z;
   const dist = Math.hypot(dx, dz);
-  // Screen-relative: same right basis as walking / the drawn camera.
   const fx = Math.sin(camYaw);
   const fz = Math.cos(camYaw);
   const rx = -Math.cos(camYaw);
   const rz = Math.sin(camYaw);
   const ang = wrapAngle(Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz));
   const distText = dist > 999 ? `${Math.round(dist / 100) / 10} km` : `${Math.round(dist)} 公尺`;
-  $("compass-arrow").style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
-  $("compass-bearing").textContent = bearingLabel(ang);
-  $("compass-dist").textContent = distText;
   updateGuide(goal, dist, ang, distText);
   const item = nearestInteract();
-  const prompt = $("prompt");
-  const parked = !state.riding ? nearestParked() : null;
-  if (item && mode === "playing") {
-    prompt.hidden = false;
-    prompt.textContent = state.riding && item.type !== "npc" && item.type !== "delivery" && item.type !== "crate"
-      ? `先按 F 下車，再${item.name}`
-      : interactPrompt(item);
-  } else if (parked && mode === "playing") {
-    prompt.hidden = false;
-    prompt.textContent = parked.id === "mine" ? "按 F 騎上紅色機車" : parked.type === "car" ? "按 F 上車" : "按 F 騎車";
-  } else if (state.riding && mode === "playing") {
-    prompt.hidden = false;
-    prompt.textContent = "按 F 下車";
-  } else prompt.hidden = true;
-  $("btn-interact").classList.toggle("ready", !!item);
+  updateKeyBadge(item);
+  $("btn-interact").classList.toggle("ready", !!(item && mode === "playing"));
+  const quest = $("quest-full");
+  if (quest) quest.textContent = goal.detail ? `${goal.title}：${goal.detail}` : goal.title;
   drawMinimap();
   if (!$("map").hidden) drawBigMap();
+}
+
+function syncGoalCard(goal) {
+  const key = `${goal.title}|${Math.round(goal.x)}|${Math.round(goal.z)}`;
+  if (key !== goalPopup.key) {
+    goalPopup.key = key;
+    goalPopup.until = performance.now() + 4500;
+    goalPopup.pinned = false;
+  }
+  goalPopup.expanded = goalPopup.pinned || performance.now() < goalPopup.until;
+  $("goal").classList.toggle("expanded", goalPopup.expanded);
+  $("goal-title").textContent = goal.title;
+  $("goal-sub").textContent = goal.detail || "";
+}
+
+function renderHint() {
+  const el = $("hint");
+  if (!state || mode === "dialog" || mode === "ending" || mode === "pause" || goalPopup.expanded) {
+    el.hidden = true;
+    return;
+  }
+  const teach = activeTutorial();
+  const text = teach || (toastTimer > 0 ? toastText : "") || placeText;
+  el.hidden = !text;
+  el.textContent = text || "";
 }
 
 function bearingLabel(ang) {
@@ -1316,44 +1357,70 @@ function updateGuide(goal, dist, ang, distText) {
   const el = $("guide");
   const arrow = $("guide-arrow");
   const label = $("guide-dist");
-  if (!state || mode !== "playing" || dist < 7) {
+  if (!state || mode !== "playing" || dist < 12) {
     el.hidden = true;
     return;
   }
-  const projected = renderer.project(goal.x, worldGround(goal.x, goal.z) + 2.4, goal.z);
+  const projected = renderer.project(goal.x, worldGround(goal.x, goal.z) + 2.2, goal.z);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  const marginX = 28 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sal")) || 0);
-  const marginY = 120 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0);
-  const bottom = 160 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sab")) || 0);
+  const marginX = w * 0.18;
+  const marginY = h * 0.18;
   let onScreen = false;
-  let px = w / 2;
-  let py = h / 2;
   if (projected) {
-    px = projected.x;
-    py = projected.y;
-    onScreen = px > marginX && px < w - marginX && py > marginY && py < h - bottom;
+    onScreen = projected.x > marginX && projected.x < w - marginX && projected.y > marginY && projected.y < h - marginY;
   }
-  if (onScreen && dist < 55) {
+  if (onScreen) {
     el.hidden = true;
     return;
   }
   el.hidden = false;
-  if (!onScreen) {
-    const halfW = w / 2 - marginX;
-    const halfH = (h - marginY - bottom) / 2;
-    const fx = Math.sin(ang);
-    const fy = -Math.cos(ang);
-    const sx = fx === 0 ? Infinity : halfW / Math.abs(fx);
-    const sy = fy === 0 ? Infinity : halfH / Math.abs(fy);
-    const t = Math.min(sx, sy);
-    px = w / 2 + fx * t;
-    py = marginY + (h - marginY - bottom) / 2 + fy * t;
-  }
+  const halfW = w / 2 - marginX;
+  const halfH = h / 2 - marginY;
+  const fx = Math.sin(ang);
+  const fy = -Math.cos(ang);
+  const sx = fx === 0 ? Infinity : halfW / Math.abs(fx);
+  const sy = fy === 0 ? Infinity : halfH / Math.abs(fy);
+  const t = Math.min(sx, sy);
+  const px = w / 2 + fx * t;
+  const py = h / 2 + fy * t;
   el.style.transform = `translate(${px}px, ${py}px)`;
   arrow.style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
-  label.textContent = `${bearingLabel(ang)} · ${distText}`;
-  label.style.transform = onScreen ? "translate(-50%, 22px)" : "translate(-50%, 28px)";
+  label.textContent = distText;
+  label.style.transform = "translate(-50%, 10px)";
+}
+
+function updateKeyBadge(item) {
+  const el = $("key-badge");
+  promptText = "";
+  if (!state || mode !== "playing") { el.hidden = true; return; }
+  const parked = !state.riding ? nearestParked() : null;
+  let focus = null;
+  if (item) {
+    const d = Math.hypot(item.x - state.x, item.z - state.z);
+    focus = { x: item.x, z: item.z, y: 2.45, key: "E", lit: true, name: item.name, kind: item.type, id: item.id, d };
+  } else if (parked) {
+    const d = Math.hypot(parked.x - state.x, parked.z - state.z);
+    focus = { x: parked.x, z: parked.z, y: 1.7, key: "F", lit: d <= MOUNT_REACH, name: parked.id === "mine" ? "紅色機車" : "車", kind: parked.type, id: parked.id, d };
+  } else {
+    let best = null;
+    let bestD = 14 * 14;
+    for (const npc of world.npcs) {
+      const d = dist2(state.x, state.z, npc.x, npc.z);
+      if (d < bestD) { bestD = d; best = npc; }
+    }
+    if (best) focus = { x: best.x, z: best.z, y: 2.45, key: "E", lit: false, name: best.name, kind: "npc", id: best.id, d: Math.sqrt(bestD) };
+  }
+  if (!focus) { el.hidden = true; return; }
+  const p = renderer.project(focus.x, worldGround(focus.x, focus.z) + focus.y, focus.z);
+  if (!p) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = focus.key;
+  el.classList.toggle("lit", !!focus.lit);
+  el.dataset.name = focus.name || "";
+  el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -130%)`;
+  if (focus.lit && focus.key === "E") promptText = interactPrompt({ type: focus.kind, name: focus.name });
+  else if (focus.lit && focus.key === "F") promptText = focus.id === "mine" ? "按 F 騎上紅色機車" : focus.kind === "car" ? "按 F 上車" : "按 F 騎車";
 }
 
 function activeGoal() {
@@ -1536,15 +1603,6 @@ function drawActors() {
     if (state.job?.type === "crate") drawProp(renderer, lib.crate, state.x, state.y + 1.1, state.z, state.yaw, 1, null);
   }
   drawGoalMarker(activeGoal());
-  const mine = world.parked.find((v) => v.id === "mine");
-  if (!state.riding && mine) {
-    const scooterDist = Math.hypot(mine.x - state.x, mine.z - state.z);
-    if (scooterDist < 140 && scooterDist > 2.5) {
-      const sy = worldGround(mine.x, mine.z);
-      drawProp(renderer, lib.ring, mine.x, sy + 0.08, mine.z, -blink * 0.7, 0.72, [1, 0.28, 0.22]);
-      if (scooterDist > 11) drawProp(renderer, lib.chevron, mine.x, sy + 3.3, mine.z, 0, 0.5, [0.95, 0.2, 0.16]);
-    }
-  }
   if (race) {
     const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
     drawProp(renderer, lib.arch, p.x, worldGround(p.x, p.z), p.z, 0, 1, null);
@@ -1580,7 +1638,9 @@ function placeLayer(root, className, list) {
     const item = list[i];
     if (!item) { el.hidden = true; continue; }
     const p = renderer.project(item.x, item.y, item.z);
-    if (!p || p.y < 158 || p.y > canvas.clientHeight - 88) { el.hidden = true; continue; }
+    const topCut = Math.max(64, canvas.clientHeight * 0.16);
+    const botCut = canvas.clientHeight * 0.8;
+    if (!p || p.y < topCut || p.y > botCut) { el.hidden = true; continue; }
     el.hidden = false;
     el.textContent = item.text;
     el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -120%)`;
@@ -1622,6 +1682,16 @@ function drawMinimap() {
     ctx.stroke();
   }
   const goal = activeGoal();
+  const blip = (x, z, color, r) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc((x - state.x) * scale, -(z - state.z) * scale, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  for (const id of ["landlord", "axia"]) {
+    const npc = world.npcs.find((n) => n.id === id);
+    if (npc) blip(npc.x, npc.z, id === "axia" ? "#ff8aa0" : "#ffe08a", 4);
+  }
   ctx.fillStyle = "#ffb703";
   ctx.fillRect((goal.x - state.x) * scale - 3, -(goal.z - state.z) * scale - 3, 6, 6);
   ctx.fillStyle = "#ff4b4b";
@@ -1679,6 +1749,15 @@ function drawBigMap() {
   const goal = activeGoal();
   ctx.fillStyle = "#7dffa8";
   ctx.fillRect(X(goal.x) - 4, Y(goal.z) - 4, 8, 8);
+  for (const id of ["landlord", "axia"]) {
+    const npc = world.npcs.find((n) => n.id === id);
+    if (!npc) continue;
+    ctx.fillStyle = id === "axia" ? "#ff8aa0" : "#ffe08a";
+    ctx.beginPath();
+    ctx.arc(X(npc.x), Y(npc.z), 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillText(npc.name, X(npc.x) + 8, Y(npc.z) - 6);
+  }
   ctx.fillStyle = "#ff4b4b";
   ctx.font = "18px sans-serif";
   for (const v of world.parked) {

@@ -122,6 +122,10 @@ export function createLibrary(renderer) {
     b.cone(0, 0.55, 0, 0.7, 1.35, 4, hex(0xffb703), 2, 0);
     b.cone(0, 1.35, 0, 0.42, 0.7, 4, hex(0xffe08a), 2, 0);
   });
+  lib.beam = mesh(renderer, (b) => {
+    b.box(0, 4.8, 0, 0.16, 9.6, 0.16, hex(0xffe08a), 2, 0);
+    b.box(0, 9.7, 0, 0.46, 0.46, 0.46, hex(0xfff6df), 2, 0);
+  });
   lib.arch = mesh(renderer, (b) => {
     b.box(-1.6, 1.5, 0, 0.18, 3, 0.18, hex(0xfff1c2), 2, 0);
     b.box(1.6, 1.5, 0, 0.18, 3, 0.18, hex(0xfff1c2), 2, 0);

@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffb703'/%3E%3C/svg%3E">
   <title>屏東人生</title>
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
   <canvas id="c"></canvas>
@@ -29,41 +29,22 @@
     </section>
 
     <div id="hud" hidden>
-      <div id="top">
-        <div id="stats">
-          <div id="money" class="pill">$0</div>
-          <div id="clock" class="pill">第1天 09:00</div>
-          <div id="stars" class="pill" aria-label="通緝星"></div>
-          <div id="stam" class="pill" aria-label="體力"><span id="stam-label">體力</span><div id="stam-track"><div id="stam-fill"></div></div></div>
-        </div>
-        <div id="top-side">
-          <div id="top-buttons">
-            <button id="btn-mute" type="button" aria-label="靜音">♪</button>
-            <button id="btn-menu" type="button">選單</button>
-          </div>
-          <div id="place-name" hidden></div>
-          <canvas id="minimap" width="160" height="160" aria-label="小地圖"></canvas>
-        </div>
+      <div id="cluster-tr" class="hud-piece">
+        <div id="money" class="pill">$0</div>
+        <div id="clock" class="pill">第1天 09:00</div>
+        <div id="stars" class="pill" aria-label="通緝星"></div>
+        <div id="stam" class="pill" hidden aria-label="體力"><span id="stam-label">體力</span><div id="stam-track"><div id="stam-fill"></div></div></div>
       </div>
-      <div id="goal">
-        <div id="compass" aria-label="目標方向">
-          <div id="compass-dial">
-            <div id="compass-arrow"></div>
-            <div id="compass-n">前</div>
-          </div>
-          <span id="compass-bearing">前方</span>
-          <span id="compass-dist"></span>
-        </div>
-        <div>
-          <div id="goal-title">目標</div>
-          <div id="goal-sub"></div>
-        </div>
-      </div>
-      <div id="guide" hidden aria-hidden="true"><span id="guide-arrow"></span><span id="guide-dist"></span></div>
-      <div id="prompt" hidden></div>
+      <button id="goal" class="hud-piece" type="button">
+        <span id="goal-title">目標</span>
+        <span id="goal-sub"></span>
+      </button>
+      <div id="hint" class="float-text hud-piece" hidden></div>
+      <canvas id="minimap" class="hud-piece" width="160" height="160" aria-label="小地圖"></canvas>
+      <div id="guide" hidden aria-hidden="true"><span id="guide-arrow"></span><span id="guide-dist" class="float-text"></span></div>
+      <div id="key-badge" hidden>E</div>
       <div id="labels"></div>
       <div id="bubbles"></div>
-      <div id="banner" hidden></div>
     </div>
 
     <div id="touch">
@@ -72,6 +53,7 @@
         <button id="btn-accel" type="button">加速</button>
         <button id="btn-interact" type="button">互動</button>
         <button id="btn-vehicle" type="button">乘車</button>
+        <button id="btn-menu" type="button">暫停</button>
       </div>
     </div>
 
@@ -86,6 +68,7 @@
     <section id="pause" class="overlay" hidden>
       <div class="card">
         <h2>暫停</h2>
+        <p id="quest-full"></p>
         <p id="records"></p>
         <button id="btn-resume" type="button">繼續</button>
         <button id="btn-save" type="button">儲存</button>
@@ -103,6 +86,7 @@
         <label>音效 <input id="sfx-vol" type="range" min="0" max="100" value="85"></label>
         <label class="check"><input id="mute-check" type="checkbox"> 靜音</label>
         <label class="check"><input id="touch-check" type="checkbox"> 顯示虛擬按鍵</label>
+        <label>介面大小 <input id="ui-scale" type="range" min="80" max="130" value="100"></label>
         <button id="settings-close" type="button">完成</button>
       </div>
     </section>
@@ -111,9 +95,9 @@
       <div class="card help-card">
         <h2>操作說明</h2>
         <p><b>電腦</b>：WASD 或方向鍵移動，Shift 衝刺，空白鍵加速，E 互動，F 上下車，H 喇叭，M 地圖，Esc 選單。</p>
-        <p><b>手機</b>：左下搖桿移動，左右跟畫面一致，不會帶動鏡頭。在畫面空白處左右滑動可以轉視角。右側大按鈕是加速、互動、上下車。加速在走路時會衝刺。</p>
-        <p><b>騎車</b>：W 前進、S 後退、A／D 跟著車頭轉，不跟著鏡頭。鏡頭會跟在車後一起轉。</p>
-        <p>畫面上會一直顯示現金、時間、體力、通緝星跟目前目標。小地圖在右上角，旁邊是你附近的地點。紅色機車在小地圖和大地圖上是紅點。</p>
+        <p><b>手機</b>：左下搖桿移動，左右跟畫面一致。空白處左右滑可以轉視角。右下角是加速、互動、上下車、暫停。互動靠近目標才會亮。</p>
+        <p><b>騎車</b>：W 前進、S 後退、A／D 跟著車頭轉，不跟著鏡頭。鏡頭會跟在車後一起轉。第一次騎上去才會教你按住加速。</p>
+        <p>現金、時間、通緝星在右上角，小地圖在左下角。任務縮成左上角一行，點一下可以展開。完整目標在暫停選單。體力只在跑步或快用完時出現。教學只在第一次做的時候出現，做完那個動作就收起來。</p>
         <p>遊戲時間固定是現實 1 秒走 1 分鐘。走路、衝刺、騎車、開大地圖都一樣，開快車不會把白天開成晚上。對話和暫停時，時間會停住。</p>
         <p>按 F3，或在網址加上 ?clock=1，可以打開時間偵錯，同時看到現實秒數和遊戲分鐘。</p>
         <button id="help-close" type="button">知道了</button>
@@ -151,6 +135,6 @@
     <div id="toast" hidden></div>
   </div>
   <div id="clock-debug" hidden></div>
-  <script type="module" src="js/game.js?v=8"></script>
+  <script type="module" src="js/game.js?v=9"></script>
 </body>
 </html>
