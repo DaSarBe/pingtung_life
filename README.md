@@ -74,7 +74,10 @@ python3 -m http.server 8765
 | `index.html` | 頁面結構與繁體中文介面 |
 | `css/style.css` | HUD、選單、觸控按鍵 |
 | `js/engine.js` | WebGL2 渲染、碰撞 |
-| `js/models.js` | 人物、車輛、直升機模型 |
+| `js/models.js` | 任務光柱、光圈、拱門、箱子、花車等小道具 |
+| `js/models-characters.js` | 人物模型與動作 |
+| `js/models-vehicles.js` | 機車、汽車、警車、直升機模型 |
+| `js/models-buildings.js` | 建築、夜市攤位、路面、行道樹與地標模型 |
 | `js/world.js` | 屏東街道、地標、墾丁與路網 |
 | `js/shift.js` | 遊戲時鐘、天空與節日 |
 | `js/audio.js` | 場景音樂與音效 |
