@@ -1615,6 +1615,14 @@ function camDistOf(x, z) {
   return Math.hypot(camera.eye[0] - x, camera.eye[2] - z);
 }
 
+const cullMin = [0, 0, 0];
+const cullMax = [0, 0, 0];
+function onScreen(x, y, z, r, h) {
+  cullMin[0] = x - r; cullMin[1] = y - 0.2; cullMin[2] = z - r;
+  cullMax[0] = x + r; cullMax[1] = y + h; cullMax[2] = z + r;
+  return renderer.visible(cullMin, cullMax);
+}
+
 function actorSeed(obj) {
   if (obj._seed == null) {
     const t = obj.tint || [0.2, 0.3, 0.4];
@@ -1698,6 +1706,7 @@ function drawActors() {
   for (const v of world.parked) {
     if (dist2(px, pz, v.x, v.z) > 120 * 120) continue;
     const y = worldGround(v.x, v.z);
+    if (!onScreen(v.x, y, v.z, 3, 2.2)) continue;
     const dist = camDistOf(v.x, v.z);
     if (v.type === "car") {
       drawCar(renderer, vehicles, v.x, y, v.z, v.yaw, 0, v.tint, false, 0, { key: v.id, night: viewNight, dist });
@@ -1714,6 +1723,7 @@ function drawActors() {
     const y = worldGround(v.x, v.z);
     const dist = camDistOf(v.x, v.z);
     const steer = yawDeltaSteer(v, v.yaw);
+    if (!onScreen(v.x, y, v.z, 3.6, 3.2)) continue;
     const key = v.type + ":" + (v.loop ?? 0) + ":" + (v.i ?? 0);
     if (v.type === "car") {
       const close = dist < 18;
@@ -1730,6 +1740,7 @@ function drawActors() {
   for (const ped of sim.peds) {
     if (dist2(px, pz, ped.x, ped.z) > 80 * 80) continue;
     const y = worldGround(ped.x, ped.z);
+    if (!onScreen(ped.x, y, ped.z, 0.8, 2)) continue;
     paintPerson({
       x: ped.x, y, z: ped.z, yaw: ped.yaw, phase: ped.phase, anim: pedAnim(ped),
       tint: ped.tint, seed: actorSeed(ped),
@@ -1737,6 +1748,7 @@ function drawActors() {
   }
   for (const npc of world.npcs) {
     if (dist2(px, pz, npc.x, npc.z) > 90 * 90) continue;
+    if (!onScreen(npc.x, worldGround(npc.x, npc.z), npc.z, 0.8, 2)) continue;
     paintPerson({
       x: npc.x, y: worldGround(npc.x, npc.z), z: npc.z,
       yaw: Math.atan2(px - npc.x, pz - npc.z), phase: blink, anim: npcAnim(npc),
@@ -1745,6 +1757,7 @@ function drawActors() {
   }
   for (const cop of sim.police) {
     const y = worldGround(cop.x, cop.z);
+    if (!onScreen(cop.x, y, cop.z, cop.kind === "foot" ? 0.8 : 3.2, 3.2)) continue;
     const dist = camDistOf(cop.x, cop.z);
     const flash = Math.sin(blink * 12);
     if (cop.kind === "foot") {
@@ -1769,6 +1782,7 @@ function drawActors() {
   }
   for (const block of sim.roadblocks) {
     const y = worldGround(block.x, block.z);
+    if (!onScreen(block.x, y, block.z, 3, 2.4)) continue;
     drawCar(renderer, vehicles, block.x, y, block.z, block.yaw, 0, [1, 1, 1], true, Math.sin(blink * 12), {
       key: "roadblock", night: viewNight, dist: camDistOf(block.x, block.z),
     });
@@ -1785,6 +1799,7 @@ function drawActors() {
   for (const item of world.interactables) {
     if (item.type !== "npc" || world.npcs.some((n) => n.id === item.id)) continue;
     if (dist2(px, pz, item.x, item.z) > 80 * 80) continue;
+    if (!onScreen(item.x, worldGround(item.x, item.z), item.z, 0.8, 2)) continue;
     paintPerson({
       x: item.x, y: worldGround(item.x, item.z), z: item.z,
       yaw: Math.atan2(px - item.x, pz - item.z), phase: blink, anim: npcAnim(item),
