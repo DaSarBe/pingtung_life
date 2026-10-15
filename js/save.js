@@ -66,6 +66,7 @@ export function defaultBoard() {
     sfx: 0.85,
     mute: false,
     showTouch: "auto",
+    uiScale: 1,
     endings: [],
     races: [],
     bestDelivery: null,
@@ -165,6 +166,7 @@ export function migrateBoard(raw) {
   out.sfx = num(out.sfx, 0, 1, d.sfx);
   out.mute = !!out.mute;
   if (out.showTouch !== "on" && out.showTouch !== "off") out.showTouch = "auto";
+  out.uiScale = num(out.uiScale, 0.8, 1.3, 1);
   if (!Array.isArray(out.endings)) out.endings = [];
   out.endings = out.endings.filter((e) => e === "honest" || e === "under");
   if (!Array.isArray(out.races)) out.races = [];
