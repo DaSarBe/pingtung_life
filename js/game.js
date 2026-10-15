@@ -1811,8 +1811,8 @@ function drawPlayerActor() {
 function drawStudio() {
   const roles = ["landlord", "axia", "along", "azhi", "amei", "sushi", "acai", "lili", "fisher", "vendor", "police", "tourist", "delivery", "aming"];
   const anims = ["idle", "walk", "run", "sprint", "talk", "arrest", "flee", "idle", "walk", "talk", "idle", "walk", "idle", "idle"];
-  const baseX = 78;
-  const baseZ = 48;
+  const baseX = 0;
+  const baseZ = 128;
   roles.forEach((id, i) => {
     const x = baseX - 16 + (i % 7) * 2.7;
     const z = baseZ + Math.floor(i / 7) * 3.2;
