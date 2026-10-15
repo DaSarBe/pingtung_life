@@ -1,7 +1,11 @@
 import {
   DEG, clamp, dampAngle, dist2, identity, pointBlocked, createRenderer, resolveCircle, wrapAngle,
 } from "./engine.js";
-import { createLibrary, drawCar, drawHeli, drawPerson, drawProp, drawRider, drawScooter, prepareFrame } from "./models.js";
+import { createLibrary, drawProp, prepareFrame } from "./models.js";
+import { createCharacterLib, drawCharacter } from "./models-characters.js";
+import {
+  RIDE, carStyle, createVehicleLib, drawCar, drawHeli, drawScooter, seatOf, toWorld,
+} from "./models-vehicles.js";
 import { createWorld, groundY as worldGround, highwayTFromZ, inZone, waterEdgeX, RACE_POINTS } from "./world.js";
 import { CLOCK_RATE, advanceClock, festivalState, formatClock, formatMoney, skyEnvironment } from "./shift.js";
 import { createAudio } from "./audio.js";
@@ -15,7 +19,7 @@ const IDENT = identity(new Float32Array(16));
 const keys = {};
 const input = { x: 0, z: 0, accel: false, interactQueued: false, vehicleQueued: false };
 
-let renderer, world, lib, sim, audio, activities;
+let renderer, world, lib, chars, vehicles, sim, audio, activities;
 let state = null;
 let board = null;
 let mode = "title";
@@ -27,6 +31,7 @@ let lookHold = 0;
 let speedV = 0;
 let gameSpeed = 0;
 let lean = 0;
+let steerVis = 0;
 let wheelSpin = 0;
 let walkPhase = 0;
 let shake = 0;
@@ -58,8 +63,14 @@ const SPRINT_SPEED = 7.6;
 let stuckTime = 0;
 let stamWarned = false;
 let moveKind = "idle";
+const pageQuery = new URLSearchParams(location.search);
+const studio = pageQuery.get("studio") === "1";
+const camOverride = Number(pageQuery.get("cam")) || 0;
+const steerMem = new WeakMap();
+const PLAYER_SHIRT = [0.2, 0.55, 0.85];
+let viewNight = 0;
 const clockDebug = {
-  enabled: new URLSearchParams(location.search).get("clock") === "1",
+  enabled: pageQuery.get("clock") === "1",
   wall: 0,
   running: 0,
   origin: null,
@@ -82,6 +93,8 @@ function boot() {
   try {
     renderer = createRenderer(canvas);
     lib = createLibrary(renderer);
+    chars = createCharacterLib(renderer);
+    vehicles = createVehicleLib(renderer);
     world = createWorld(renderer);
     sim = createSim(world);
     audio = createAudio();
@@ -116,6 +129,7 @@ function boot() {
       get hint() { const el = $("hint"); return el.hidden ? "" : el.textContent; },
       get pos() { return state ? { x: state.x, y: state.y, z: state.z, yaw: state.yaw, riding: state.riding, stamina: state.stamina } : null; },
       setYaw(y) { if (state) { state.yaw = y; camYaw = y; lookHold = 0; } },
+      setLook(partial) { if (state && partial) state.look = { ...(state.look || {}), ...partial }; },
       blocked(x, z, r = 0.34) { return pointBlocked(state && state.inside ? world.interiorGrids[state.inside] : world.grid, x, z, r); },
       clockSample() { return readClockDebug(); },
       resetClockDebug() { resetClockDebug(); },
@@ -761,6 +775,7 @@ function updatePlayer(dt) {
       moveKind = "idle";
     }
     lean = 0;
+    steerVis = 0;
   } else {
     const max = (riding === "car" ? 34 : 24) * rain;
     const accel = riding === "car" ? 12 : 15;
@@ -773,6 +788,7 @@ function updatePlayer(dt) {
     const turnRate = (riding === "car" ? 1.5 : 2.2) * clamp(Math.abs(speedV) / 8, 0.28, 1);
     state.yaw -= nx * turnRate * dt * (speedV < 0 ? -1 : 1);
     lean = clamp(nx * 0.28, -0.3, 0.3);
+    steerVis = clamp(-nx * 0.55, -0.5, 0.5);
     wish = Math.abs(speedV) * dt;
     slideMove(grid, Math.sin(state.yaw) * speedV * dt, Math.cos(state.yaw) * speedV * dt, radius);
     wheelSpin += speedV * dt / 0.32;
@@ -1463,6 +1479,7 @@ function render() {
     env.fogDensity = 0.012;
     env.night = Math.min(env.night, 0.25);
   }
+  viewNight = env.night;
   layoutCamera();
   renderer.begin(camera, env);
   prepareFrame();
@@ -1493,7 +1510,10 @@ function render() {
   } else {
     const room = world.interiors[state.inside];
     renderer.draw(room.mesh, IDENT);
-    drawPerson(renderer, lib, state.x, state.y, state.z, state.yaw, walkPhase, gameSpeed > 0.2, [0.2, 0.55, 0.85], false);
+    paintPerson({
+      x: state.x, y: state.y, z: state.z, yaw: state.yaw, phase: walkPhase,
+      anim: footAnim(), role: "player", look: state.look, tint: PLAYER_SHIRT, lod: 0,
+    });
   }
   if (state && mode !== "title") projectUi();
 }
@@ -1504,8 +1524,12 @@ function layoutCamera() {
     setCamera([sway, 3.4, 124], [sway * 0.08, 4.8, 176], 46 * DEG);
     return;
   }
-  const dist = state.inside ? 5.4 : state.riding === "car" ? 10.2 : state.riding ? 8.1 : 6.6;
-  const height = state.inside ? 2.5 : state.riding === "car" ? 4.3 : state.riding ? 3.9 : 3.25;
+  let dist = state.inside ? 5.4 : state.riding === "car" ? 10.2 : state.riding ? 8.1 : 6.6;
+  let height = state.inside ? 2.5 : state.riding === "car" ? 4.3 : state.riding ? 3.9 : 3.25;
+  if (camOverride > 1 && !state.inside) {
+    dist = camOverride;
+    height = Math.max(1.15, camOverride * 0.42);
+  }
   const desiredX = state.x - Math.sin(camYaw) * dist;
   const desiredZ = state.z - Math.cos(camYaw) * dist;
   let eyeY = state.y + height + Math.sin(blink * 30) * shake;
@@ -1555,53 +1579,192 @@ function setCamera(eye, target, fov) {
   camera.up = [ux, uy, uz];
 }
 
+function personLod(x, z) {
+  const d = Math.hypot(camera.eye[0] - x, camera.eye[2] - z);
+  if (d > 34) return 2;
+  if (d > 13) return 1;
+  return 0;
+}
+
+function camDistOf(x, z) {
+  return Math.hypot(camera.eye[0] - x, camera.eye[2] - z);
+}
+
+function actorSeed(obj) {
+  if (obj._seed == null) {
+    const t = obj.tint || [0.2, 0.3, 0.4];
+    obj._seed = (Math.imul((obj.x * 10) | 0, 374761393) ^ Math.imul((obj.z * 10) | 0, 668265263) ^ ((t[0] * 255) | 0)) >>> 0 || 1;
+  }
+  return obj._seed;
+}
+
+function yawDeltaSteer(obj, yaw) {
+  const prev = steerMem.get(obj);
+  steerMem.set(obj, yaw);
+  if (prev == null) return 0;
+  let d = yaw - prev;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return clamp(d * 10, -0.45, 0.45);
+}
+
+function footAnim() {
+  if (handsUp()) return "arrest";
+  if (mode === "dialog") return "talk";
+  if (moveKind === "sprint") return "sprint";
+  if (moveKind === "walk") return "walk";
+  return "idle";
+}
+
+function handsUp() {
+  if (bustLock) return true;
+  if (!state || state.wanted < 1 || state.riding || gameSpeed > 2) return false;
+  for (const cop of sim.police) {
+    if (cop.kind === "foot" && dist2(state.x, state.z, cop.x, cop.z) < 3.4 * 3.4) return true;
+  }
+  return false;
+}
+
+function paintPerson(spec) {
+  drawCharacter(renderer, chars, {
+    time: blink,
+    shadow: true,
+    lod: spec.lod != null ? spec.lod : personLod(spec.x, spec.z),
+    ...spec,
+  });
+}
+
+function pedAnim(ped) {
+  if (ped.flee > 0) return "flee";
+  if (ped.speed > 3) return "run";
+  if (ped.speed > 0.2) return "walk";
+  return "idle";
+}
+
+function npcAnim(npc) {
+  const near = dist2(state.x, state.z, npc.x, npc.z);
+  if (mode === "dialog" && near < 36) return "talk";
+  if ((npc.id === "axia" || npc.id === "vendor") && near < 64) return "talk";
+  return "idle";
+}
+
+function drawDriver(x, y, z, yaw, key, tint, police, seed) {
+  const style = carStyle(key, police);
+  const seat = seatOf(style);
+  const hip = toWorld(x, y, z, yaw, 0, seat[0], seat[1], seat[2]);
+  paintPerson({
+    x: hip[0], y: hip[1], z: hip[2], yaw, anim: "drive", origin: "hip",
+    role: police ? "police" : undefined, id: police ? "police" : undefined,
+    seed, tint, lod: camDistOf(x, z) > 13 ? 1 : 0, shadow: false,
+  });
+}
+
+function drawRider(x, y, z, yaw, roll, steer, tint, role, seed, look) {
+  const hip = toWorld(x, y, z, yaw, roll, RIDE.hip[0], RIDE.hip[1], RIDE.hip[2]);
+  paintPerson({
+    x: hip[0], y: hip[1], z: hip[2], yaw, roll, steer, anim: "ride", origin: "hip",
+    role, seed, tint, look, lod: role === "player" ? 0 : (camDistOf(x, z) > 16 ? 1 : 0), shadow: false,
+  });
+}
+
 function drawActors() {
   const px = state.x;
   const pz = state.z;
   for (const v of world.parked) {
     if (dist2(px, pz, v.x, v.z) > 120 * 120) continue;
     const y = worldGround(v.x, v.z);
-    if (v.type === "car") drawCar(renderer, lib, v.x, y, v.z, v.yaw, 0, v.tint, false, 0);
-    else drawScooter(renderer, lib, v.x, y, v.z, v.yaw, 0, 0, v.tint);
+    const dist = camDistOf(v.x, v.z);
+    if (v.type === "car") {
+      drawCar(renderer, vehicles, v.x, y, v.z, v.yaw, 0, v.tint, false, 0, { key: v.id, night: viewNight, dist });
+    } else {
+      drawScooter(renderer, vehicles, v.x, y, v.z, v.yaw, 0, 0, v.tint, {
+        key: v.id, night: viewNight, dist,
+        sport: v.id === "mine" ? false : undefined,
+        basket: v.id === "mine" ? false : undefined,
+      });
+    }
   }
   for (const v of sim.traffic) {
     if (dist2(px, pz, v.x, v.z) > 140 * 140) continue;
     const y = worldGround(v.x, v.z);
-    if (v.type === "car") drawCar(renderer, lib, v.x, y, v.z, v.yaw, v.phase, v.tint, false, 0);
-    else drawScooter(renderer, lib, v.x, y, v.z, v.yaw, 0, v.phase, v.tint);
+    const dist = camDistOf(v.x, v.z);
+    const steer = yawDeltaSteer(v, v.yaw);
+    const key = v.type + ":" + (v.loop ?? 0) + ":" + (v.i ?? 0);
+    if (v.type === "car") {
+      const close = dist < 18;
+      drawCar(renderer, vehicles, v.x, y, v.z, v.yaw, v.phase, v.tint, false, 0, {
+        key, steer, night: viewNight, dist,
+        beforeGlass: close ? () => drawDriver(v.x, y, v.z, v.yaw, key, v.tint, false, actorSeed(v)) : undefined,
+      });
+    } else {
+      const roll = steer * 0.45;
+      drawScooter(renderer, vehicles, v.x, y, v.z, v.yaw, roll, v.phase, v.tint, { key, steer, night: viewNight, dist });
+      if (dist < 20) drawRider(v.x, y, v.z, v.yaw, roll, steer, v.tint, undefined, actorSeed(v));
+    }
   }
   for (const ped of sim.peds) {
     if (dist2(px, pz, ped.x, ped.z) > 80 * 80) continue;
     const y = worldGround(ped.x, ped.z);
-    if (dist2(px, pz, ped.x, ped.z) > 28 * 28) drawProp(renderer, lib.person, ped.x, y, ped.z, ped.yaw, 1, ped.tint);
-    else drawPerson(renderer, lib, ped.x, y, ped.z, ped.yaw, ped.phase, ped.speed > 0.2, ped.tint, false);
+    paintPerson({
+      x: ped.x, y, z: ped.z, yaw: ped.yaw, phase: ped.phase, anim: pedAnim(ped),
+      tint: ped.tint, seed: actorSeed(ped),
+    });
   }
   for (const npc of world.npcs) {
     if (dist2(px, pz, npc.x, npc.z) > 90 * 90) continue;
-    drawPerson(renderer, lib, npc.x, worldGround(npc.x, npc.z), npc.z, Math.atan2(px - npc.x, pz - npc.z), blink, false, npc.tint, false);
+    paintPerson({
+      x: npc.x, y: worldGround(npc.x, npc.z), z: npc.z,
+      yaw: Math.atan2(px - npc.x, pz - npc.z), phase: blink, anim: npcAnim(npc),
+      id: npc.id, tint: npc.tint, seed: actorSeed(npc),
+    });
   }
   for (const cop of sim.police) {
     const y = worldGround(cop.x, cop.z);
-    if (cop.kind === "foot") drawPerson(renderer, lib, cop.x, y, cop.z, cop.yaw, cop.phase, true, cop.tint, true);
-    else if (cop.kind === "car") drawCar(renderer, lib, cop.x, y, cop.z, cop.yaw, cop.phase, [1, 1, 1], true, Math.sin(blink * 12));
-    else drawScooter(renderer, lib, cop.x, y, cop.z, cop.yaw, 0, cop.phase, [0.9, 0.92, 0.96]);
+    const dist = camDistOf(cop.x, cop.z);
+    const flash = Math.sin(blink * 12);
+    if (cop.kind === "foot") {
+      const anim = cop.speed > 1.2 ? "run" : cop.speed > 0.2 ? "walk" : "idle";
+      paintPerson({
+        x: cop.x, y, z: cop.z, yaw: cop.yaw, phase: cop.phase, anim, role: "police", id: "police", tint: cop.tint,
+      });
+    } else if (cop.kind === "car") {
+      const close = dist < 18;
+      drawCar(renderer, vehicles, cop.x, y, cop.z, cop.yaw, cop.phase, [1, 1, 1], true, flash, {
+        key: "police-car", steer: yawDeltaSteer(cop, cop.yaw), night: viewNight, dist,
+        beforeGlass: close ? () => drawDriver(cop.x, y, cop.z, cop.yaw, "police", cop.tint, true, 3) : undefined,
+      });
+    } else {
+      const steer = yawDeltaSteer(cop, cop.yaw);
+      const roll = steer * 0.4;
+      drawScooter(renderer, vehicles, cop.x, y, cop.z, cop.yaw, roll, cop.phase, [0.9, 0.92, 0.96], {
+        key: "police-scooter", police: true, blink: flash, steer, night: viewNight, dist, sport: false, basket: false,
+      });
+      if (dist < 20) drawRider(cop.x, y, cop.z, cop.yaw, roll, steer, [0.15, 0.28, 0.55], "police", 5);
+    }
   }
   for (const block of sim.roadblocks) {
-    drawCar(renderer, lib, block.x, worldGround(block.x, block.z), block.z, block.yaw, 0, [1, 1, 1], true, Math.sin(blink * 12));
+    const y = worldGround(block.x, block.z);
+    drawCar(renderer, vehicles, block.x, y, block.z, block.yaw, 0, [1, 1, 1], true, Math.sin(blink * 12), {
+      key: "roadblock", night: viewNight, dist: camDistOf(block.x, block.z),
+    });
   }
-  if (sim.heli) drawHeli(renderer, lib, sim.heli.x, sim.heli.y, sim.heli.z, sim.heli.yaw, sim.heli.spin);
+  if (sim.heli) {
+    drawHeli(renderer, vehicles, sim.heli.x, sim.heli.y, sim.heli.z, sim.heli.yaw, sim.heli.spin, {
+      night: viewNight, blink: Math.sin(blink * 10),
+    });
+  }
   if (festivalState(state.time).parade && state.z > -220) {
     drawProp(renderer, lib.boat, 0, worldGround(0, sim.paradeZ), sim.paradeZ, 0, 1, null);
   }
-  if (state.riding === "car") drawCar(renderer, lib, state.x, state.y, state.z, state.yaw, wheelSpin, state.vehicleTint || [0.2, 0.4, 0.8], false, 0);
-  else if (state.riding === "scooter") {
-    drawScooter(renderer, lib, state.x, state.y, state.z, state.yaw, lean, wheelSpin, state.vehicleTint || [0.82, 0.16, 0.14]);
-    drawRider(renderer, lib, state.x, state.y, state.z, state.yaw, [0.2, 0.55, 0.85]);
-  } else drawPerson(renderer, lib, state.x, state.y, state.z, state.yaw, walkPhase, gameSpeed > 0.2, [0.2, 0.55, 0.85], false);
+  drawPlayerActor();
   for (const item of world.interactables) {
     if (item.type !== "npc" || world.npcs.some((n) => n.id === item.id)) continue;
     if (dist2(px, pz, item.x, item.z) > 80 * 80) continue;
-    drawPerson(renderer, lib, item.x, worldGround(item.x, item.z), item.z, Math.atan2(px - item.x, pz - item.z), blink, false, item.tint || [0.4, 0.55, 0.8], false);
+    paintPerson({
+      x: item.x, y: worldGround(item.x, item.z), z: item.z,
+      yaw: Math.atan2(px - item.x, pz - item.z), phase: blink, anim: npcAnim(item),
+      id: item.id, tint: item.tint || [0.4, 0.55, 0.8], seed: actorSeed(item),
+    });
   }
   if (state.job?.type === "crate" || (state.chapter || "").startsWith("under_crate")) {
     if (state.job?.type === "crate") drawProp(renderer, lib.crate, state.x, state.y + 1.1, state.z, state.yaw, 1, null);
@@ -1611,11 +1774,96 @@ function drawActors() {
     const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
     drawProp(renderer, lib.arch, p.x, worldGround(p.x, p.z), p.z, 0, 1, null);
   }
+  if (studio) drawStudio();
+}
+
+function drawPlayerActor() {
+  if (state.riding === "car") {
+    const tint = state.vehicleTint || [0.2, 0.4, 0.8];
+    const key = "player-car";
+    drawCar(renderer, vehicles, state.x, state.y, state.z, state.yaw, wheelSpin, tint, false, 0, {
+      key, steer: steerVis, night: viewNight, dist: 5,
+      beforeGlass() {
+        const seat = seatOf(carStyle(key, false));
+        const hip = toWorld(state.x, state.y, state.z, state.yaw, 0, seat[0], seat[1], seat[2]);
+        paintPerson({
+          x: hip[0], y: hip[1], z: hip[2], yaw: state.yaw, anim: "drive", origin: "hip",
+          role: "player", look: state.look, tint: PLAYER_SHIRT, lod: 0, shadow: false,
+        });
+      },
+    });
+    return;
+  }
+  if (state.riding === "scooter") {
+    const tint = state.vehicleTint || [0.82, 0.16, 0.14];
+    drawScooter(renderer, vehicles, state.x, state.y, state.z, state.yaw, lean, wheelSpin, tint, {
+      key: "mine", sport: false, basket: false, steer: steerVis, night: viewNight, dist: 4,
+    });
+    drawRider(state.x, state.y, state.z, state.yaw, lean, steerVis, PLAYER_SHIRT, "player", 1, state.look);
+    return;
+  }
+  paintPerson({
+    x: state.x, y: state.y, z: state.z, yaw: state.yaw, phase: walkPhase,
+    anim: footAnim(), role: "player", look: state.look, tint: PLAYER_SHIRT, lod: 0,
+  });
+}
+
+function drawStudio() {
+  const roles = ["landlord", "axia", "along", "azhi", "amei", "sushi", "acai", "lili", "fisher", "vendor", "police", "tourist", "delivery", "aming"];
+  const anims = ["idle", "walk", "run", "sprint", "talk", "arrest", "flee", "idle", "walk", "talk", "idle", "walk", "idle", "idle"];
+  const baseX = 78;
+  const baseZ = 48;
+  roles.forEach((id, i) => {
+    const x = baseX - 16 + (i % 7) * 2.7;
+    const z = baseZ + Math.floor(i / 7) * 3.2;
+    paintPerson({
+      x, y: worldGround(x, z), z, yaw: Math.PI, phase: blink * 2.2, anim: anims[i],
+      id, role: id === "aming" ? "player" : id, lod: 0, seed: i + 3,
+    });
+  });
+  const cars = [
+    ["sedan", [0.25, 0.48, 0.82]],
+    ["hatch", [0.82, 0.22, 0.24]],
+    ["taxi", [0.95, 0.78, 0.16]],
+    ["van", [0.32, 0.55, 0.38]],
+    ["truck", [0.48, 0.34, 0.22]],
+  ];
+  cars.forEach(([style, tint], i) => {
+    const x = baseX - 12 + i * 5.2;
+    const z = baseZ + 10;
+    drawCar(renderer, vehicles, x, worldGround(x, z), z, Math.PI, blink * 4, tint, false, 0, {
+      key: "studio-" + style, style, steer: 0.22, night: viewNight, dist: 8,
+    });
+  });
+  drawCar(renderer, vehicles, baseX + 16, worldGround(baseX + 16, baseZ + 10), baseZ + 10, Math.PI, blink * 4, [1, 1, 1], true, Math.sin(blink * 8), {
+    night: viewNight, dist: 8, steer: -0.15,
+  });
+  const scooters = [
+    { x: baseX - 8, tint: [0.86, 0.12, 0.1], key: "mine", sport: false, basket: false },
+    { x: baseX - 4, tint: [0.2, 0.5, 0.86], key: "studio-step", sport: false, basket: true },
+    { x: baseX, tint: [0.15, 0.16, 0.18], key: "studio-sport", sport: true, basket: false },
+  ];
+  for (const s of scooters) {
+    const z = baseZ + 15;
+    drawScooter(renderer, vehicles, s.x, 0, z, Math.PI, 0.18, blink * 5, s.tint, {
+      key: s.key, sport: s.sport, basket: s.basket, steer: 0.3, night: viewNight, dist: 6,
+    });
+  }
+  drawScooter(renderer, vehicles, baseX + 5, 0, baseZ + 15, Math.PI, 0.12, blink * 5, [0.86, 0.12, 0.1], {
+    key: "studio-ridden", sport: false, basket: false, steer: 0.15, night: viewNight, dist: 6,
+  });
+  drawRider(baseX + 5, 0, baseZ + 15, Math.PI, 0.12, 0.15, PLAYER_SHIRT, "player", 1);
+  drawHeli(renderer, vehicles, baseX + 8, 7, baseZ + 20, 0.4, blink * 7, { night: viewNight, blink: Math.sin(blink * 9) });
 }
 
 function drawActorsTitle() {
-  drawPerson(renderer, lib, 6, 0, 160, 2.4, blink, false, [0.8, 0.3, 0.25], false);
-  drawScooter(renderer, lib, -6, 0, 158, 0.4, 0, blink, [0.8, 0.16, 0.14]);
+  paintPerson({
+    x: 6, y: 0, z: 160, yaw: 2.4, phase: blink * 0.35, anim: "idle",
+    tint: [0.8, 0.3, 0.25], seed: 11, lod: 0,
+  });
+  drawScooter(renderer, vehicles, -6, 0, 158, 0.4, 0, blink * 2, [0.8, 0.16, 0.14], {
+    key: "title", night: viewNight, dist: 14, steer: Math.sin(blink * 0.6) * 0.2, sport: false,
+  });
 }
 
 function projectUi() {
