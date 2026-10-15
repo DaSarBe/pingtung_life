@@ -305,6 +305,10 @@ function bindInput() {
   $("btn-help2").addEventListener("click", () => { $("help").hidden = false; });
   $("help-close").addEventListener("click", () => { $("help").hidden = true; });
   $("btn-menu").addEventListener("click", () => openPause());
+  $("minimap").addEventListener("click", () => {
+    if (!state || mode !== "playing") return;
+    openMap();
+  });
   $("btn-resume").addEventListener("click", closePause);
   $("btn-save").addEventListener("click", () => { save(); toast("已儲存"); });
   $("btn-pause-settings").addEventListener("click", () => openSettings("pause"));
