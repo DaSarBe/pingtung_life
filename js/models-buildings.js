@@ -146,8 +146,11 @@ export function buildCityGround(builder, detail = 2) {
   }
 }
 
-export function buildCityRoads(builder, xs, zs, detail = 2) {
+// target 可以是單一 MeshBuilder，或 (x, z) => { hi, lo } 依位置分塊；
+// 分塊時 lo 只放整段柏油與人行道，不放標線。
+export function buildCityRoads(target, xs, zs, detail = 2) {
   // 路面、人行道、路口各做一塊，彼此不重疊，標線明顯浮在路面上，避免共面摩爾紋。
+  const route = typeof target === "function" ? target : () => ({ hi: target, lo: null });
   const half = 5.22;
   const walkIn = 5.28;
   const walkOut = 9.55;
@@ -160,25 +163,47 @@ export function buildCityRoads(builder, xs, zs, detail = 2) {
     for (let i = 0; i < zs.length - 1; i++) {
       const a = zs[i] + half;
       const b = zs[i + 1] - half;
-      layRun(builder, x, a, b, "z", half, walkIn, walkW, roadTop, markY, piece, detail);
+      const d = route(x, (a + b) / 2);
+      layRun(d.hi, x, a, b, "z", half, walkIn, walkW, roadTop, markY, piece, detail);
+      if (d.lo) layRunLod(d.lo, x, a, b, "z", half, walkIn, walkW, roadTop);
     }
   }
   for (const z of zs) {
     for (let i = 0; i < xs.length - 1; i++) {
       const a = xs[i] + half;
       const b = xs[i + 1] - half;
-      layRun(builder, z, a, b, "x", half, walkIn, walkW, roadTop, markY, piece, detail);
+      const d = route((a + b) / 2, z);
+      layRun(d.hi, z, a, b, "x", half, walkIn, walkW, roadTop, markY, piece, detail);
+      if (d.lo) layRunLod(d.lo, z, a, b, "x", half, walkIn, walkW, roadTop);
     }
   }
 
   for (const x of xs) {
     for (const z of zs) {
-      builder.box(x, roadTop / 2, z, half * 2, roadTop, half * 2, ROAD, 0, 0);
-      cornerPad(builder, x, z, 1, 1, walkIn, walkW);
-      cornerPad(builder, x, z, 1, -1, walkIn, walkW);
-      cornerPad(builder, x, z, -1, 1, walkIn, walkW);
-      cornerPad(builder, x, z, -1, -1, walkIn, walkW);
+      const d = route(x, z);
+      for (const builder of d.lo ? [d.hi, d.lo] : [d.hi]) {
+        builder.box(x, roadTop / 2, z, half * 2, roadTop, half * 2, ROAD, 0, 0);
+        cornerPad(builder, x, z, 1, 1, walkIn, walkW);
+        cornerPad(builder, x, z, 1, -1, walkIn, walkW);
+        cornerPad(builder, x, z, -1, 1, walkIn, walkW);
+        cornerPad(builder, x, z, -1, -1, walkIn, walkW);
+      }
     }
+  }
+}
+
+function layRunLod(b, fixed, a, bEnd, axis, half, walkIn, walkW, roadTop) {
+  const mid = (a + bEnd) / 2;
+  const seg = bEnd - a;
+  const off = walkIn + walkW / 2;
+  if (axis === "z") {
+    b.box(fixed, roadTop / 2, mid, half * 2, roadTop, seg, ROAD, 0, 0);
+    b.box(fixed - off, 0.105, mid, walkW, 0.15, seg, WALK, 0, 0);
+    b.box(fixed + off, 0.105, mid, walkW, 0.15, seg, WALK, 0, 0);
+  } else {
+    b.box(mid, roadTop / 2, fixed, seg, roadTop, half * 2, ROAD, 0, 0);
+    b.box(mid, 0.105, fixed - off, seg, 0.15, walkW, WALK, 0, 0);
+    b.box(mid, 0.105, fixed + off, seg, 0.15, walkW, WALK, 0, 0);
   }
 }
 

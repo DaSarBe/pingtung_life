@@ -1515,6 +1515,12 @@ function render() {
       if (!renderer.visible(piece.min, piece.max)) continue;
       renderer.draw(piece.mesh, IDENT);
     }
+    for (const road of world.roads) {
+      if (!renderer.visible(road.min, road.max)) continue;
+      const dx = Math.max(road.min[0] - cx, 0, cx - road.max[0]);
+      const dz = Math.max(road.min[2] - cz, 0, cz - road.max[2]);
+      renderer.draw(dx * dx + dz * dz > 60 * 60 ? road.lod : road.mesh, IDENT);
+    }
     const faded = [];
     for (const chunk of world.chunks) {
       const mx = (chunk.min[0] + chunk.max[0]) / 2;

@@ -225,8 +225,16 @@ export function createWorld(renderer) {
   buildCityGround(cityGround, sceneDetail);
   const park = new MeshBuilder();
   buildParkGround(park);
-  const cityRoads = new MeshBuilder();
-  buildCityRoads(cityRoads, XS, ZS, sceneDetail);
+  const roadDuals = new Map();
+  buildCityRoads((x, z) => {
+    const k = `${Math.floor((x + 150) / 100)},${Math.floor((z + 150) / 100)}`;
+    let d = roadDuals.get(k);
+    if (!d) {
+      d = { hi: new MeshBuilder(), lo: new MeshBuilder() };
+      roadDuals.set(k, d);
+    }
+    return d;
+  }, XS, ZS, sceneDetail);
   for (const x of XS) roadSegs.push({ x0: x, z0: -156, x1: x, z1: 156 });
   for (const z of ZS) roadSegs.push({ x0: -156, z0: z, x1: 156, z1: z });
 
@@ -508,6 +516,12 @@ export function createWorld(renderer) {
     if (!mesh) continue;
     chunks.push({ mesh, lod, min: mesh.min, max: mesh.max });
   }
+  const roads = [];
+  for (const dual of roadDuals.values()) {
+    const mesh = renderer.createMesh(dual.hi);
+    if (!mesh) continue;
+    roads.push({ mesh, lod: renderer.createMesh(dual.lo) || mesh, min: mesh.min, max: mesh.max });
+  }
 
   function big(builder) {
     const mesh = renderer.createMesh(builder);
@@ -532,7 +546,8 @@ export function createWorld(renderer) {
 
   return {
     chunks,
-    big: [big(cityGround), big(park), big(cityRoads), big(highway), big(coastLand), big(kentingGround), big(beach)].filter(Boolean),
+    roads,
+    big: [big(cityGround), big(park), big(highway), big(coastLand), big(kentingGround), big(beach)].filter(Boolean),
     water: [big(ocean), big(pondMesh())].filter(Boolean),
     colliders,
     covers,
