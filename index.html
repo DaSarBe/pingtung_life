@@ -1,257 +1,152 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="屏東人生：在屏東市騎車、打工、吃飯，也可以闖一點禍。通緝會被警察追。">
-  <meta name="theme-color" content="#1a1410">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23ffb703'/%3E%3C/svg%3E">
   <title>屏東人生</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1410'/%3E%3Ccircle cx='16' cy='14' r='6' fill='%23ff8a3d'/%3E%3Crect x='6' y='22' width='20' height='3' rx='1.5' fill='%231f7a45'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
-  <noscript><p class="noscript paper">請開啟 JavaScript，才能玩屏東人生。</p></noscript>
-  <p id="toast" class="toast" hidden role="status"></p>
-  <div id="pop-layer" class="pop-layer"></div>
-
-  <section id="screen-title" class="screen">
-    <div class="title-wrap">
-      <div class="title-hero" aria-hidden="true">
-        <span class="lantern l1"></span><span class="lantern l2"></span><span class="lantern l3"></span>
-        <span class="lantern l4"></span><span class="lantern l5"></span><span class="hero-line"></span>
-      </div>
-      <div class="title-card paper">
-        <p class="eyebrow">屏東市 · 開放生活</p>
+  <canvas id="c"></canvas>
+  <div id="rain" aria-hidden="true"></div>
+  <div id="fade"></div>
+  <div id="fatal" hidden></div>
+  <div id="ui">
+    <section id="title">
+      <div class="card title-card">
+        <p class="eyebrow">屏東市 · 開放世界</p>
         <h1>屏東人生</h1>
-        <p class="lede">從火車站旁的雅房出門。中正路、自由路可以走、可以騎。夜市、溪邊、漁港和檳榔園都在同一座城裡。正經打工，或闖一點卡通式的禍，警察都會記帳。</p>
-        <p id="title-note" class="title-note" hidden></p>
-        <div id="title-actions" class="stack">
-          <button type="button" class="btn btn-primary" id="btn-continue" data-action="continue" hidden>繼續這段日子</button>
-          <button type="button" class="btn btn-ghost" data-action="open-new">開始新人生</button>
-          <button type="button" class="btn btn-ghost" data-action="open-board">存款排行</button>
-          <button type="button" class="btn btn-ghost" data-action="open-help">怎麼玩</button>
-        </div>
-        <form id="new-form" class="stack" hidden>
-          <label for="player-name">你的名字</label>
-          <input id="player-name" name="player-name" type="text" maxlength="8" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="例如：阿明">
-          <p class="muted">最多 8 個字。留空會叫做路人甲。</p>
-          <button type="submit" class="btn btn-primary">進入屏東</button>
-          <button type="button" class="btn btn-ghost" data-action="cancel-naming">返回</button>
-        </form>
-      </div>
-    </div>
-  </section>
-
-  <section id="screen-play" class="screen" hidden>
-    <header class="topbar">
-      <div class="wrap">
-        <div class="brand-row">
-          <div class="brand">
-            <p class="brand-kicker">屏東人生</p>
-            <h1 id="hud-name">路人甲</h1>
-          </div>
-          <div class="brand-actions">
-            <button type="button" class="btn btn-ghost" data-action="open-side">委託</button>
-            <button type="button" class="btn btn-ghost" data-action="open-day">今日</button>
-            <button type="button" class="btn btn-ghost" data-action="open-help">玩法</button>
-            <button type="button" class="btn btn-ghost" data-action="quit-open">結束</button>
-          </div>
-        </div>
-        <div class="when">
-          <span id="hud-day">第 1 天</span>
-          <span id="hud-time">07:00</span>
-          <span id="hud-ride" hidden></span>
-          <span id="hud-wanted" class="stars" aria-label="通緝"></span>
-        </div>
-        <div class="stats">
-          <div class="stat stat-money"><span class="stat-label">存款</span><strong id="hud-money">$1,600</strong></div>
-          <div class="stat">
-            <div class="stat-label"><span>體力</span><span id="hud-stamina">80</span></div>
-            <div class="bar" id="stamina-meter" role="meter" aria-label="體力" aria-valuemin="0" aria-valuemax="100"><div class="bar-fill" id="stamina-bar"></div></div>
-          </div>
-          <div class="stat">
-            <div class="stat-label"><span>飢餓</span><span id="hud-hunger">62</span></div>
-            <div class="bar" id="hunger-meter" role="meter" aria-label="飽足" aria-valuemin="0" aria-valuemax="100"><div class="bar-fill hunger" id="hunger-bar"></div></div>
-          </div>
-          <div class="stat">
-            <div class="stat-label"><span>心情</span><span id="hud-mood">70</span></div>
-            <div class="bar" id="mood-meter" role="meter" aria-label="心情" aria-valuemin="0" aria-valuemax="100"><div class="bar-fill mood" id="mood-bar"></div></div>
-          </div>
-        </div>
-        <p id="hud-rep" class="rep-line"></p>
-        <div class="rent-row">
-          <div id="rent-track" class="rent-track" role="img" aria-label="繳租進度"></div>
-          <p id="rent-label" class="rent-label"></p>
+        <p class="tagline">白天可以上班，晚上可以逛夜市。要當店長，或走進虛構的夜路，都由你決定。</p>
+        <button id="btn-new" type="button">開始新遊戲</button>
+        <button id="btn-continue" type="button">繼續遊戲</button>
+        <div class="row">
+          <button id="btn-settings" type="button">設定</button>
+          <button id="btn-help" type="button">操作說明</button>
         </div>
       </div>
-    </header>
-    <div class="wrap play-wrap">
-      <p id="objective" class="objective" aria-live="polite"></p>
-      <div id="hint" class="hint paper" hidden>
-        <p>WASD 或搖桿移動，拖曳轉頭。靠近金色光點再按按鈕。有車按「上車」。闖禍會有通緝星。</p>
-        <button type="button" class="btn btn-ghost" data-action="dismiss-hint">知道了</button>
-      </div>
-      <div class="play-grid">
-        <section class="scene" id="scene">
-          <canvas id="world" class="world" aria-label="屏東街道。鍵盤或搖桿移動，拖曳轉頭，靠近光點再做事"></canvas>
-          <div id="minimap" class="minimap" aria-hidden="true">
-            <i id="mm-station" class="mm-pin">車站</i>
-            <i id="mm-market" class="mm-pin">夜市</i>
-            <i id="mm-park" class="mm-pin">公園</i>
-            <i id="mm-star" class="mm-pin">星村</i>
-            <i id="mm-mall" class="mm-pin">百貨</i>
-            <i id="mm-gov" class="mm-pin">縣府</i>
-            <i id="mm-uni" class="mm-pin">大學</i>
-            <i id="mm-river" class="mm-pin">溪邊</i>
-            <i id="mm-farm" class="mm-pin">農場</i>
-            <i id="mm-port" class="mm-pin">漁港</i>
-            <i id="mm-player" class="mm-player"></i>
-          </div>
-          <p id="world-fallback" class="world-fallback" hidden>這個瀏覽器沒開 3D，改用下面的按鈕在城裡辦事。</p>
-          <p class="orbit-hint">WASD 或搖桿 · 拖曳轉頭 · 點地面</p>
-          <p id="heat-flag" class="eat-flag hungry" hidden>警察靠近了</p>
-          <p id="place-float" class="eat-flag"></p>
-          <button type="button" id="btn-mount" class="mount-btn" data-action="mount">上車</button>
-          <button type="button" id="interact" class="interact" hidden>做事</button>
-          <div id="stick" class="stick"><div id="stick-nub" class="stick-nub"></div></div>
-          <div class="scene-copy">
-            <p class="kicker"><span class="line-pill" id="place-pill">屏東</span></p>
-            <h2 id="place-name">雅房</h2>
-            <p id="place-desc"></p>
-          </div>
-        </section>
-        <section class="panel paper" id="fallback-panel">
-          <h2>沒有 3D 時</h2>
-          <div id="actions" class="actions"></div>
-          <p class="fine">有 3D 時這些按鈕會收起來，改到街上找金色光點。</p>
-        </section>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="screen-over" class="screen" hidden>
-    <div class="over-wrap">
-      <div class="over-card paper">
-        <p class="stamp">結局</p>
-        <h1>這段日子先停在這裡</h1>
-        <p id="over-name" class="over-name"></p>
-        <p id="over-reason" class="over-reason"></p>
-        <p id="over-money" class="over-money"></p>
-        <p id="over-meta" class="muted"></p>
-        <p id="over-rank" class="over-rank"></p>
-        <div class="stack">
-          <button type="button" class="btn btn-primary" data-action="restart">再來一局</button>
-          <button type="button" class="btn btn-ghost" data-action="open-board">存款排行</button>
-          <button type="button" class="btn btn-ghost" data-action="to-title">回標題</button>
+    <div id="hud" hidden>
+      <div id="top">
+        <div id="stats">
+          <div id="money" class="pill">$0</div>
+          <div id="clock" class="pill">第1天 09:00</div>
+          <div id="stars" class="pill" aria-label="通緝星"></div>
+          <div id="stam" class="pill" aria-label="體力"><span>體力</span><div id="stam-track"><div id="stam-fill"></div></div></div>
+        </div>
+        <div id="top-side">
+          <div id="top-buttons">
+            <button id="btn-mute" type="button" aria-label="靜音">♪</button>
+            <button id="btn-menu" type="button">選單</button>
+          </div>
+          <canvas id="minimap" width="160" height="160" aria-label="小地圖"></canvas>
         </div>
       </div>
-    </div>
-  </section>
-
-  <div id="modal-help" class="modal-back" data-action="close-help" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="help-title" data-action="stop">
-      <div class="modal-head">
-        <h2 id="help-title">怎麼玩</h2>
-        <button type="button" class="btn btn-ghost" data-action="close-help">關閉</button>
+      <div id="goal">
+        <div id="compass" aria-label="目標方向">
+          <div id="compass-dial">
+            <div id="compass-arrow"></div>
+            <div id="compass-n">前</div>
+          </div>
+          <span id="compass-bearing">前方</span>
+          <span id="compass-dist"></span>
+        </div>
+        <div>
+          <div id="goal-title">目標</div>
+          <div id="goal-sub"></div>
+        </div>
       </div>
-      <div class="help-body">
-        <p>你租在屏東火車站附近。顧好存款、體力、飢餓和心情，第 7、14、21 天要繳房租 $2,800。</p>
-        <h3>城市</h3>
-        <p>中正路貫南北，自由路貫東西，外圈可以繞。千禧公園、勝利星村、太平洋百貨、縣政府與六堆客家文化園區、屏東大學、高屏溪、檳榔園、往東港的漁港，走路或騎車都到得了。火車站可以搭火車去高雄晃一下再回來。公車站能花一點錢換地方。</p>
-        <h3>移動</h3>
-        <p>鍵盤 WASD 或方向鍵、左下搖桿、點地面。拖曳轉動鏡頭。有自己的機車或汽車時，按「上車」。油在南油加油站加。大順機車可以買車，也可以加加速和油箱。</p>
-        <h3>打工</h3>
-        <p>8-12 超商、外送、檳榔園、漁港幫工。每一趟先玩個小遊戲，薪水看表現，大約六到十二成。外送得先有車。每種一天最多三班。</p>
-        <h3>人</h3>
-        <p>夜市的阿霞、大學的阿德、六堆的春嬌、溪邊的阿龍。多說說話會解開委託：拍照、送文件、套圈、溪邊比賽、送一個封好的紙箱。</p>
-        <h3>闖禍（遊戲裡的卡通後果）</h3>
-        <p>街上有沒鎖的機車和汽車，可以騎走。超商和百貨可以順手拿東西。紅燈和測速照相會記點。推開路人也會。巷口茶室晚上開，可以小賭，也可以作弊但會被抓。這些都只是按按鈕，隨後通緝星上升、罰款或進派出所喝茶，沒有寫實過程。</p>
-        <p>信用高，第一次闖紅燈或超速會先警告。路子高，茶室和阿龍比較願意理你。擺脫警察一段時間，星星會掉。</p>
-        <p>進度存在這台裝置，清除瀏覽器資料就會消失。</p>
-      </div>
+      <div id="guide" hidden aria-hidden="true"><span id="guide-arrow"></span><span id="guide-dist"></span></div>
+      <div id="prompt" hidden></div>
+      <div id="labels"></div>
+      <div id="bubbles"></div>
+      <div id="banner" hidden></div>
     </div>
-  </div>
 
-  <div id="modal-day" class="modal-back" data-action="close-day" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="day-title" data-action="stop">
-      <div class="modal-head">
-        <h2 id="day-title">今天</h2>
-        <button type="button" class="btn btn-ghost" data-action="close-day">關閉</button>
-      </div>
-      <p id="people" class="career"></p>
-      <div id="mini-lines"></div>
-      <h3 class="log-title">最近</h3>
-      <ul id="log" class="log"></ul>
-    </div>
-  </div>
-
-  <div id="modal-board" class="modal-back" data-action="close-board" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="board-title" data-action="stop">
-      <div class="modal-head">
-        <h2 id="board-title">存款排行</h2>
-        <button type="button" class="btn btn-ghost" data-action="close-board">關閉</button>
-      </div>
-      <p class="muted">只留這台裝置的前 10 筆。</p>
-      <p id="board-empty" class="empty" hidden>還沒有紀錄。</p>
-      <ol id="board-list" class="board-list"></ol>
-    </div>
-  </div>
-
-  <div id="modal-card" class="modal-back" data-action="close-card" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="card-title" data-action="stop">
-      <div class="modal-head">
-        <h2 id="card-title">屏東</h2>
-        <button type="button" class="btn btn-ghost" data-action="close-card">離開</button>
-      </div>
-      <p id="card-body"></p>
-      <div id="card-actions" class="stack"></div>
-    </div>
-  </div>
-
-  <div id="modal-shift" class="modal-back" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="shift-title" data-action="stop">
-      <div class="modal-head">
-        <h2 id="shift-title">做事</h2>
-        <button type="button" class="btn btn-ghost" data-action="shift-quit">放棄</button>
-      </div>
-      <p id="shift-prompt"></p>
-      <div id="shift-stage"></div>
-      <p id="shift-meta" class="muted"></p>
-    </div>
-  </div>
-
-  <div id="modal-summary" class="modal-back summary-back" hidden>
-    <div class="modal sheet paper" role="dialog" aria-modal="true" aria-labelledby="summary-kicker" data-action="stop">
-      <p class="eyebrow" id="summary-kicker">一天結束</p>
-      <p class="net" id="summary-net">+$0</p>
-      <p class="summary-money" id="summary-money"></p>
-      <div id="summary-stats" class="delta-row"></div>
-      <ul id="summary-notes" class="notes"></ul>
-      <button type="button" class="btn btn-primary" id="btn-dismiss-summary" data-action="dismiss-summary">開始新的一天</button>
-    </div>
-  </div>
-
-  <div id="modal-bust" class="modal-back" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="bust-title" data-action="stop">
-      <h2 id="bust-title">派出所</h2>
-      <p id="bust-body"></p>
-      <button type="button" class="btn btn-primary" data-action="bust-ok">知道了</button>
-    </div>
-  </div>
-
-  <div id="modal-confirm" class="modal-back" hidden>
-    <div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="confirm-title" data-action="stop">
-      <h2 id="confirm-title"></h2>
-      <p id="confirm-body"></p>
-      <div class="row-btns">
-        <button type="button" class="btn btn-ghost" data-action="confirm-no">取消</button>
-        <button type="button" class="btn btn-primary" id="confirm-yes" data-action="confirm-yes">確定</button>
+    <div id="touch">
+      <div id="joy" aria-label="移動搖桿"><div id="joy-knob"></div></div>
+      <div id="actions">
+        <button id="btn-accel" type="button">加速</button>
+        <button id="btn-interact" type="button">互動</button>
+        <button id="btn-vehicle" type="button">乘車</button>
       </div>
     </div>
-  </div>
 
-  <script src="js/world.js"></script>
-  <script src="js/shift.js"></script>
-  <script src="js/game.js"></script>
+    <section id="dialog" class="overlay" hidden>
+      <div class="card dialog-card">
+        <div id="dlg-name"></div>
+        <p id="dlg-text"></p>
+        <div id="dlg-choices"></div>
+      </div>
+    </section>
+
+    <section id="pause" class="overlay" hidden>
+      <div class="card">
+        <h2>暫停</h2>
+        <p id="records"></p>
+        <button id="btn-resume" type="button">繼續</button>
+        <button id="btn-save" type="button">儲存</button>
+        <button id="btn-pause-settings" type="button">設定</button>
+        <button id="btn-help2" type="button">操作說明</button>
+        <button id="btn-map" type="button">大地圖</button>
+        <button id="btn-title" type="button">回到標題</button>
+      </div>
+    </section>
+
+    <section id="settings" class="overlay" hidden>
+      <div class="card">
+        <h2>設定</h2>
+        <label>音樂 <input id="music-vol" type="range" min="0" max="100" value="75"></label>
+        <label>音效 <input id="sfx-vol" type="range" min="0" max="100" value="85"></label>
+        <label class="check"><input id="mute-check" type="checkbox"> 靜音</label>
+        <label class="check"><input id="touch-check" type="checkbox"> 顯示虛擬按鍵</label>
+        <button id="settings-close" type="button">完成</button>
+      </div>
+    </section>
+
+    <section id="help" class="overlay" hidden>
+      <div class="card help-card">
+        <h2>操作說明</h2>
+        <p><b>電腦</b>：WASD 或方向鍵移動，Shift 衝刺，空白鍵加速，E 互動，F 上下車，H 喇叭，M 地圖，Esc 選單。</p>
+        <p><b>手機</b>：左下搖桿移動，左右跟畫面一致，不會帶動鏡頭。在畫面空白處左右滑動可以轉視角。右側大按鈕是加速、互動、上下車。加速在走路時會衝刺。</p>
+        <p>畫面上會一直顯示現金、時間、體力、通緝星跟目前目標。小地圖在右上角。</p>
+        <p>遊戲時間照固定速度走，開車再快也不會把白天開成晚上。</p>
+        <button id="help-close" type="button">知道了</button>
+      </div>
+    </section>
+
+    <section id="map" class="overlay" hidden>
+      <div class="card map-card">
+        <div class="row">
+          <button id="map-city" type="button">屏東市</button>
+          <button id="map-kenting" type="button">墾丁</button>
+          <button id="map-close" type="button">關閉</button>
+        </div>
+        <canvas id="map-canvas" width="760" height="760"></canvas>
+      </div>
+    </section>
+
+    <section id="mini" class="overlay" hidden>
+      <div class="card mini-card">
+        <h2 id="mini-title">小遊戲</h2>
+        <canvas id="mini-canvas" width="640" height="360"></canvas>
+        <button id="mini-close" type="button">離開</button>
+      </div>
+    </section>
+
+    <section id="ending" class="overlay" hidden>
+      <div class="card">
+        <h2 id="ending-title"></h2>
+        <p id="ending-text"></p>
+        <button id="ending-free" type="button">繼續自由遊玩</button>
+        <button id="ending-title-btn" type="button">回到標題</button>
+      </div>
+    </section>
+
+    <div id="toast" hidden></div>
+  </div>
+  <script type="module" src="js/game.js?v=4"></script>
 </body>
 </html>

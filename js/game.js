@@ -1,1688 +1,1403 @@
-/* 屏東人生
- * 存款、打工、車輛、關係和通緝都在這個檔案。
- * 畫面文字用繁體中文。闖禍只有按鈕和後果，沒有寫實過程。
- */
-(function () {
-  'use strict';
+import {
+  DEG, clamp, dampAngle, dist2, identity, pointBlocked, createRenderer, resolveCircle, wrapAngle,
+} from "./engine.js";
+import { createLibrary, drawCar, drawHeli, drawPerson, drawProp, drawScooter, prepareFrame } from "./models.js";
+import { createWorld, groundY as worldGround, highwayTFromZ, inZone, waterEdgeX, RACE_POINTS } from "./world.js";
+import { CLOCK_RATE, advanceClock, festivalState, formatClock, formatMoney, skyEnvironment } from "./shift.js";
+import { createAudio } from "./audio.js";
+import { createSim, honk, updateSim } from "./sim.js";
+import { crateDrops, createActivities, goalFor, interactItem, updateStory } from "./story.js";
+import { defaultState, hasSave, readBoard, readSave, writeBoard, writeSave } from "./save.js";
 
-  var SAVE_KEY = 'pingtung-life-save-v1';
-  var BOARD_KEY = 'pingtung-life-board-v1';
+const $ = (id) => document.getElementById(id);
+const canvas = $("c");
+const IDENT = identity(new Float32Array(16));
+const keys = {};
+const input = { x: 0, z: 0, accel: false, interactQueued: false, vehicleQueued: false };
 
-  var RULES = {
-    startMoney: 1600,
-    startStamina: 80,
-    startHunger: 62,
-    startMood: 70,
-    startFame: 10,
-    rent: 2800,
-    scooter: 2800,
-    car: 14000,
-    speedCost: 900,
-    tankCost: 700,
-    gasSmall: 50,
-    gasFull: 120,
-    gasSmallAdd: 30,
-    trainFare: 120,
-    busFare: 40,
-    fine: [0, 400, 900, 1600, 2400, 3200]
-  };
+let renderer, world, lib, sim, audio, activities;
+let state = null;
+let board = null;
+let mode = "title";
+let titleTime = 9 * 3600;
+let camYaw = Math.PI;
+let lookId = null;
+let lookX = 0;
+let lookHold = 0;
+let speedV = 0;
+let gameSpeed = 0;
+let lean = 0;
+let wheelSpin = 0;
+let walkPhase = 0;
+let shake = 0;
+let dialog = null;
+let race = null;
+let mapRegion = "city";
+let settingsReturn = "title";
+let toastTimer = 0;
+let bannerUntil = 0;
+let saveTimer = 0;
+let eventTimer = 8;
+let blink = 0;
+let bustLock = false;
+const camera = {
+  eye: [0, 8, 0],
+  target: [0, 1, 0],
+  forward: [0, 0, 1],
+  right: [1, 0, 0],
+  up: [0, 1, 0],
+  fov: 58 * DEG,
+};
 
-  var JOBS = {
-    clerk: { name: '8-12 店員', pay: 700, minutes: 120, stamina: 16, where: '超商' },
-    courier: { name: '外送', pay: 1100, minutes: 90, stamina: 22, where: '外送' },
-    farm: { name: '檳榔園', pay: 900, minutes: 150, stamina: 20, where: '農場' },
-    port: { name: '漁港幫工', pay: 1000, minutes: 140, stamina: 18, where: '漁港' }
-  };
+const game = {
+  get state() { return state; },
+  get world() { return world; },
+  get sim() { return sim; },
+  get audio() { return audio; },
+  get mode() { return mode; },
+  get speed() { return gameSpeed; },
+  get race() { return race; },
+  eventTimer: 8,
+  say, toast, openActivity, startRace, startDelivery, startCrate,
+  enter, exitInterior, save, showEnding, addMoney, addWanted, removeInteract, fade,
+};
 
-  var BUS = [
-    { place: 'station', name: '屏東火車站' },
-    { place: 'market', name: '屏東夜市' },
-    { place: 'park', name: '千禧公園' },
-    { place: 'star', name: '勝利星村' },
-    { place: 'mall', name: '太平洋百貨' },
-    { place: 'gov', name: '縣政府' },
-    { place: 'uni', name: '屏東大學' },
-    { place: 'river', name: '高屏溪' },
-    { place: 'farm', name: '檳榔園' },
-    { place: 'port', name: '東港漁港' }
-  ];
-
-  var RACE = [[-8, -62], [18, -64], [30, -56], [-22, -56], [-8, -62]];
-
-  var COPY = {
-    home: {
-      morning: '雅房靠火車站，窗外已經有機車聲。床在左側。',
-      afternoon: '房間有點熱，電風扇轉得很慢。',
-      evening: '天色轉橘，門縫裡透進路燈。',
-      night: '街上還有零星的引擎聲。'
-    },
-    station: {
-      morning: '屏東火車站前人來人往，早餐攤已經開了。',
-      afternoon: '月台邊有人等下一班往高雄的車。',
-      evening: '車站的燈先亮起來。',
-      night: '末班車的氣氛，廣場還是亮的。'
-    },
-    market: {
-      morning: '夜市攤子在收桌子，青草茶倒還買得到。',
-      afternoon: '有人在備料，油鍋先響。',
-      evening: '燈籠亮了，肉圓和套圈擠在一起。',
-      night: '人最多的時候，走路要側著過。巷口茶室亮著暗燈。'
-    },
-    park: {
-      morning: '千禧公園剛醒，有人沿著步道走。',
-      afternoon: '椰子樹把太陽切成一塊一塊。',
-      evening: '草地變涼，適合坐一下。',
-      night: '路燈把步道照成一條暖線。'
-    },
-    star: {
-      morning: '勝利星村的老屋還沒太多人。',
-      afternoon: '紅磚和綠樹，很適合拍照。',
-      evening: '燈串亮起，巷子變得好走。',
-      night: '店家打烊了一半，牆還是好看。'
-    },
-    mall: {
-      morning: '太平洋百貨剛開門，冷氣先湧出來。',
-      afternoon: '電梯口很多人，餐廳在樓上。',
-      evening: '櫥窗全亮了。',
-      night: '快打烊，一樓還進得去。'
-    },
-    gov: {
-      morning: '縣政府這帶開始上班，六堆園區的牌子在旁邊。',
-      afternoon: '廣場曬得很亮。',
-      evening: '辦公室的燈一格格暗下去。',
-      night: '園區靜了，春嬌還坐在門口。'
-    },
-    uni: {
-      morning: '屏東大學的腳踏車很多。',
-      afternoon: '自助餐窗口排著短短的隊伍。',
-      evening: '圖書館的燈比操場亮。',
-      night: '校園幾乎空了，阿德還在。'
-    },
-    river: {
-      morning: '高屏溪的風比街上大。',
-      afternoon: '堤防上有人騎車經過。',
-      evening: '水面變深，阿龍靠在欄杆邊。',
-      night: '溪邊很暗，只有車燈掃過去。'
-    },
-    farm: {
-      morning: '檳榔園的葉子還帶著露水。',
-      afternoon: '太陽很大，工寮裡比較涼。',
-      evening: '收工的人陸續騎車離開。',
-      night: '園子暗了，今晚沒有班。'
-    },
-    port: {
-      morning: '往東港的漁港，魚箱一簍簍上岸。',
-      afternoon: '冰水味很重，分類的工作還沒完。',
-      evening: '拍賣快結束。',
-      night: '碼頭只剩燈，船也不收了。'
-    },
-    road: {
-      morning: '中正路和自由路都醒了，機車比人多。',
-      afternoon: '柏油路發燙，椰子樹沿路排開。',
-      evening: '路燈和店招一起亮。',
-      night: '紅燈和測速照相都還在做事。'
-    }
-  };
-
-  var state = null;
-  var ui = blankUi();
-  var toastTimer = 0;
-  var lastWanted = -1;
-  var appliedHide = {};
-  var raceSent = false;
-  var heat = 0;
-  var bumpAt = 0;
-  var stamWarned = false;
-  var shownPlace = '';
-  var placeTimer = 0;
-
-  function blankUi() {
-    return { screen: 'title', help: false, board: false, day: false, card: null, shift: null, confirm: null, naming: false, bust: null };
-  }
-  function $(id) { return document.getElementById(id); }
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
-  function formatMoney(n) {
-    var sign = n < 0 ? '-' : '';
-    return sign + '$' + Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
-  function formatClock(mins) {
-    mins = ((mins % 1440) + 1440) % 1440;
-    var h = Math.floor(mins / 60), m = Math.floor(mins % 60);
-    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-  }
-  function periodOf(mins) {
-    return mins >= 19 * 60 || mins < 5 * 60 ? 'night' : mins < 9 * 60 ? 'morning' : mins < 16 * 60 ? 'afternoon' : 'evening';
-  }
-  function isNight() { return state.time >= 18 * 60 || state.time < 5 * 60; }
-  function cleanName(raw) {
-    var name = String(raw || '').replace(/\s+/g, '').slice(0, 8);
-    return name || '路人甲';
-  }
-  function speedMul() { return state && state.upgrades && state.upgrades.speed ? 1.18 : 1; }
-  function fuelMax() { return state && state.upgrades && state.upgrades.tank ? 150 : 100; }
-  function hasVehicle() { return !!(state && (state.ownsScooter || state.ownsCar || state.hot)); }
-  function playing() {
-    return !!(state && !state.over && ui.screen === 'play' && !state.pendingSummary && !ui.bust);
-  }
-
-  function createGame(name) {
-    var pose = window.PingWorld ? window.PingWorld.spawn('home') : { x: -56, z: 16.4, ry: 0 };
-    return {
-      version: 2,
-      name: name,
-      day: 1,
-      time: 7 * 60,
-      money: RULES.startMoney,
-      stamina: RULES.startStamina,
-      hunger: RULES.startHunger,
-      mood: RULES.startMood,
-      fame: RULES.startFame,
-      street: 0,
-      wanted: 0,
-      place: 'home',
-      pose: { x: pose.x, z: pose.z, ry: pose.ry },
-      fuel: 0,
-      ownsScooter: false,
-      ownsCar: false,
-      upgrades: { speed: 0, tank: 0 },
-      riding: 'walk',
-      hot: false,
-      hotKind: '',
-      hotFuel: 0,
-      rel: { xia: 0, ade: 0, chun: 0, long: 0 },
-      jobsToday: { clerk: 0, courier: 0, farm: 0, port: 0 },
-      jobCounts: { clerk: 0, courier: 0, farm: 0, port: 0 },
-      flags: {
-        breakfast: false, firstjob: false, wheels: false, sawMarket: false, sawRiver: false,
-        warned: false, metLong: false
-      },
-      shoplift: { mart: 0, mall: 0 },
-      side: { photo: '', deliver: '', ring: '', race: '', box: '' },
-      carrying: false,
-      hidden: [],
-      racing: false,
-      gambleBan: 0,
-      ateToday: false,
-      hintOn: true,
-      ledger: freshLedger(RULES.startMoney, RULES.startStamina, RULES.startHunger, RULES.startMood),
-      log: ['在火車站旁的雅房醒過來。'],
-      pendingSummary: null,
-      over: null,
-      ranked: false,
-      forcePose: true,
-      frac: { hunger: 0, stamina: 0, fuel: 0, unseen: 0, event: 40 }
+function boot() {
+  try {
+    renderer = createRenderer(canvas);
+    lib = createLibrary(renderer);
+    world = createWorld(renderer);
+    sim = createSim(world);
+    audio = createAudio();
+    activities = createActivities($("mini-canvas"));
+    board = readBoard();
+    applyAudio();
+    $("btn-continue").disabled = !hasSave();
+    bindInput();
+    window.__PT = {
+      get state() { return state; },
+      get mode() { return mode; },
+      get speed() { return gameSpeed; },
+      get draws() { return renderer.draws.count; },
+      board,
+      tp(x, z) { if (state) { state.x = x; state.z = z; } },
+      setTime(h) { if (state) state.time = h * 3600; },
+      setWanted(n) { if (state) state.wanted = clamp(n, 0, 5); },
+      setChapter(c) { if (state) state.chapter = c; },
+      get police() { return sim ? sim.police.length : 0; },
+      get heli() { return !!(sim && sim.heli); },
+      get blocks() { return sim ? sim.roadblocks.length : 0; },
+      get scene() { return sceneName(); },
+      get cameraYaw() { return camYaw; },
+      setCameraYaw(y) { camYaw = wrapAngle(y); lookHold = 1.2; },
+      project(x, y, z) { return renderer.project(x, y, z); },
+      get cops() { return sim ? sim.police.map((c) => ({ x: c.x, z: c.z, kind: c.kind })) : []; },
     };
+    requestAnimationFrame(frame);
+  } catch (err) {
+    const fatal = $("fatal");
+    fatal.hidden = false;
+    fatal.textContent = "遊戲無法啟動：" + (err && err.message ? err.message : err);
   }
-  function freshLedger(money, stamina, hunger, mood) {
-    return { earn: 0, spend: 0, notes: [], money: money, stamina: stamina, hunger: hunger, mood: mood };
-  }
-  function load() {
-    try {
-      var raw = localStorage.getItem(SAVE_KEY);
-      if (!raw) return null;
-      var data = JSON.parse(raw);
-      if (!data || data.version !== 2 || !data.name) return null;
-      data.frac = data.frac || { hunger: 0, stamina: 0, fuel: 0, unseen: 0, event: 40 };
-      data.flags = data.flags || {};
-      data.upgrades = data.upgrades || { speed: 0, tank: 0 };
-      data.rel = data.rel || { xia: 0, ade: 0, chun: 0, long: 0 };
-      data.jobsToday = data.jobsToday || { clerk: 0, courier: 0, farm: 0, port: 0 };
-      data.jobCounts = data.jobCounts || { clerk: 0, courier: 0, farm: 0, port: 0 };
-      data.side = data.side || { photo: '', deliver: '', ring: '', race: '', box: '' };
-      data.shoplift = data.shoplift || { mart: 0, mall: 0 };
-      data.hidden = data.hidden || [];
-      data.log = data.log || [];
-      return data;
-    } catch (err) { return null; }
-  }
-  function save() {
-    if (!state) return;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (err) { /* 這台裝置不讓存 */ }
-  }
-  function loadBoard() {
-    try {
-      var data = JSON.parse(localStorage.getItem(BOARD_KEY) || '[]');
-      return Array.isArray(data) ? data : [];
-    } catch (err) { return []; }
-  }
-  function pushBoard() {
-    if (!state || state.ranked) return;
-    state.ranked = true;
-    var board = loadBoard();
-    board.push({ name: state.name, money: Math.round(state.money), day: state.day, at: Date.now() });
-    board.sort(function (a, b) { return b.money - a.money; });
-    try { localStorage.setItem(BOARD_KEY, JSON.stringify(board.slice(0, 10))); } catch (err) { /* 略過 */ }
-  }
+}
 
-  function logLine(text) {
-    if (!text) return;
-    state.log.unshift(text);
-    state.log = state.log.slice(0, 12);
-  }
-  function toast(message) {
-    var el = $('toast');
-    if (!el) return;
-    el.textContent = message;
-    el.hidden = false;
-    window.clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(function () { el.hidden = true; }, 2400);
-  }
-  function pop(text, kind) {
-    var layer = $('pop-layer');
-    if (!layer) return;
-    var el = document.createElement('div');
-    el.className = 'pop' + (kind ? ' ' + kind : '');
-    el.textContent = text;
-    el.style.left = (38 + Math.random() * 18) + '%';
-    el.style.top = '46%';
-    layer.appendChild(el);
-    window.setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 900);
-  }
-  function note(text) {
-    if (state.ledger.notes.length < 8) state.ledger.notes.push(text);
-    logLine(text);
-  }
+function applyAudio() {
+  audio.setMusicVolume(board.music);
+  audio.setSfxVolume(board.sfx);
+  audio.setMute(board.mute);
+  $("music-vol").value = String(Math.round(board.music * 100));
+  $("sfx-vol").value = String(Math.round(board.sfx * 100));
+  $("mute-check").checked = board.mute;
+  $("touch-check").checked = board.showTouch === "on";
+  $("btn-mute").textContent = board.mute ? "靜" : "♪";
+}
 
-  function rememberPose() {
-    if (!window.PingWorld) return;
-    var pose = window.PingWorld.readPose();
-    state.pose = { x: pose.x, z: pose.z, ry: pose.ry };
-    if (pose.place) state.place = pose.place;
-  }
-  function ensureHidden() {
-    if (!window.PingWorld) return;
-    (state.hidden || []).forEach(function (id) {
-      if (appliedHide[id]) return;
-      appliedHide[id] = true;
-      window.PingWorld.hideProp(id);
-    });
-  }
-  function syncWorld(force) {
-    var world = window.PingWorld;
-    if (!world || !state) return;
-    ensureHidden();
-    world.setClock(state.time);
-    world.setTired(state.stamina <= 14);
-    world.setRide(state.riding === 'walk' ? 'walk' : state.riding, speedMul());
-    world.setCarry(!!state.carrying);
-    if (state.wanted !== lastWanted) {
-      world.setWanted(state.wanted);
-      lastWanted = state.wanted;
-    }
-    if (state.racing && !raceSent) {
-      world.setChecks(RACE);
-      raceSent = true;
-    }
-    if (!state.racing && raceSent) {
-      world.setChecks([]);
-      raceSent = false;
-    }
-    var pose = state.pose || world.spawn(state.place || 'home');
-    world.show(state.place || 'home', periodOf(state.time), pose.x, pose.z, pose.ry || 0, !!(force || state.forcePose));
-    state.forcePose = false;
-  }
+function freshState() {
+  const save = readSave();
+  return save || null;
+}
 
-  function addMinutes(mins) {
-    if (!state || state.over || state.pendingSummary) return false;
-    state.time += mins;
-    state.frac.hunger += mins * 0.04;
-    while (state.frac.hunger >= 1) {
-      state.hunger = Math.max(0, state.hunger - 1);
-      state.frac.hunger -= 1;
-    }
-    if (state.time >= 24 * 60) {
-      endDay('midnight');
-      return true;
-    }
-    if (state.hunger <= 0) clinic();
-    return false;
+function beginPlaying(next, banner) {
+  state = next;
+  camYaw = state.yaw || 0;
+  speedV = 0;
+  gameSpeed = 0;
+  race = null;
+  dialog = null;
+  if (state.job && state.job.left > 0) state.job.deadline = performance.now() + state.job.left * 1000;
+  else state.job = null;
+  if (state.race && Number.isFinite(state.race.elapsed)) {
+    race = { i: state.race.i | 0, start: performance.now() - state.race.elapsed * 1000, warn: 0, opp: 0 };
   }
-  function gain(amount, text) {
-    state.money += amount;
-    state.ledger.earn += amount;
-    if (text) note(text);
-    pop('+' + formatMoney(amount), 'good');
+  state.race = null;
+  mode = "playing";
+  $("title").hidden = true;
+  $("hud").hidden = false;
+  $("pause").hidden = true;
+  $("ending").hidden = true;
+  if (banner) {
+    bannerUntil = performance.now() + 7000;
+    $("banner").hidden = false;
+    $("banner").textContent = "WASD 移動，E 互動，F 上下車。手機用左下搖桿移動，在畫面上左右滑動轉視角。";
   }
-  function spend(amount, text) {
-    state.money -= amount;
-    state.ledger.spend += amount;
-    if (text) note(text);
-    pop('-' + formatMoney(amount), 'bad');
-  }
-  function bumpStat(key, delta) { state[key] = clamp(state[key] + delta, 0, 100); }
+  audio.resume();
+  audio.setScene(sceneName(), true);
+  save();
+}
 
-  function clinic() {
-    if (state.hunger > 0 || state.over) return;
-    state.hunger = 22;
-    if (state.money >= 180) {
-      spend(180, '餓到去診所，花了 $180');
-      toast('肚子空了，去診所掛了一號');
-    } else {
-      bumpStat('stamina', -12);
-      bumpStat('mood', -8);
-      note('餓到站不穩');
-      toast('餓到站不穩');
-    }
-  }
-  function setStars(n) {
-    state.wanted = clamp(n, 0, 5);
-    if (state.wanted === 0) heat = 0;
-    if (window.PingWorld && state.wanted !== lastWanted) {
-      window.PingWorld.setWanted(state.wanted);
-      lastWanted = state.wanted;
-    }
-  }
-
-  function endDay(kind) {
-    if (!state || state.over || state.pendingSummary) return;
-    rememberPose();
-    var nextHunger = state.hunger;
-    var nextStamina = state.stamina;
-    var nextMood = state.mood;
-    var nextMoney = state.money;
-    var notes = state.ledger.notes.slice();
-    if (state.hunger < 35) {
-      nextStamina = clamp(nextStamina - 14, 0, 100);
-      nextMood = clamp(nextMood - 12, 0, 100);
-      notes.push(kind === 'midnight' ? '拖過午夜，空著肚子硬撐' : '空著肚子睡，早上很虛');
-    } else {
-      nextStamina = clamp(nextStamina + 36, 0, 100);
-      nextMood = clamp(nextMood + 8, 0, 100);
-      nextHunger = clamp(nextHunger - 10, 0, 100);
-      notes.push(kind === 'midnight' ? '在外面晃到半夜，人被送回雅房' : '睡了一覺');
-    }
-    var rentPaid = 0;
-    if (state.day % 7 === 0) {
-      if (nextMoney >= RULES.rent) {
-        nextMoney -= RULES.rent;
-        rentPaid = RULES.rent;
-        notes.push('繳了房租 ' + formatMoney(RULES.rent));
-      } else {
-        state.money = nextMoney;
-        gameOver('rent');
-        return;
-      }
-    }
-    if (nextStamina <= 0) { state.stamina = 0; gameOver('stamina'); return; }
-    if (nextMood <= 0) { state.mood = 0; gameOver('mood'); return; }
-    state.pendingSummary = {
-      kind: kind,
-      notes: notes,
-      rentPaid: rentPaid,
-      net: state.ledger.earn - state.ledger.spend - rentPaid,
-      money: nextMoney,
-      stamina: nextStamina,
-      hunger: nextHunger,
-      mood: nextMood,
-      from: { money: state.ledger.money, stamina: state.ledger.stamina, hunger: state.ledger.hunger, mood: state.ledger.mood }
-    };
-    ui.card = null;
-    ui.day = false;
-    ui.confirm = null;
-    ui.shift = null;
-    if (window.PingShift) window.PingShift.stop();
-    save();
-    render();
-  }
-  function dismissSummary() {
-    var next = state.pendingSummary;
-    if (!next) return;
-    state.money = next.money;
-    state.stamina = next.stamina;
-    state.hunger = next.hunger;
-    state.mood = next.mood;
-    state.day += 1;
-    state.time = 7 * 60;
-    state.jobsToday = { clerk: 0, courier: 0, farm: 0, port: 0 };
-    state.ateToday = false;
-    state.place = 'home';
-    state.riding = 'walk';
-    state.hot = false;
-    state.hotKind = '';
-    state.hotFuel = 0;
-    state.carrying = false;
-    if (state.side.box === 'carry') state.side.box = 'go';
-    state.racing = false;
-    if (state.wanted > 0) state.wanted -= 1;
-    var spawn = window.PingWorld.spawn('home');
-    state.pose = { x: spawn.x, z: spawn.z, ry: spawn.ry };
-    state.forcePose = true;
-    state.pendingSummary = null;
-    state.ledger = freshLedger(state.money, state.stamina, state.hunger, state.mood);
-    state.frac.unseen = 0;
-    logLine('第 ' + state.day + ' 天，從雅房出門。');
-    save();
-    render();
-  }
-  function gameOver(reason) {
-    var text = {
-      rent: '第 ' + state.day + ' 天繳不出房租 ' + formatMoney(RULES.rent) + '。',
-      stamina: '體力在過夜之後撐不住了。',
-      mood: '心情在過夜之後掉光了。',
-      quit: '你自己把這段日子按停。'
-    };
-    state.over = { reason: reason, text: text[reason] || '這段日子先停在這裡。' };
-    state.pendingSummary = null;
-    ui.screen = 'over';
-    ui.card = null;
-    ui.shift = null;
-    ui.bust = null;
-    ui.confirm = null;
-    pushBoard();
-    save();
-    render();
-  }
-
-  function objectiveText() {
-    var flags = state.flags;
-    if (!flags.breakfast) return '任務：按住 W 出房門，金光點就是火車站旁的早餐。';
-    if (!flags.firstjob) return '任務：去 8-12、檳榔園或漁港，上第一班工。';
-    if (!flags.wheels) return '任務：到大順機車買一台，或騎走路邊沒鎖的車。';
-    if (!flags.sawMarket) return '任務：去屏東夜市，找阿霞說話。';
-    if (!flags.sawRiver) return '任務：沿著高屏溪找阿龍。';
-    if (state.day % 7 === 0) return '今天結束要繳房租 ' + formatMoney(RULES.rent) + '。支線在「委託」。';
-    var left = 7 - (state.day % 7);
-    return '主線先告一段落。再過 ' + left + ' 天繳租。支線在「委託」。';
-  }
-  function missionLines() {
-    var lines = [];
-    var side = state.side;
-    if (side.photo === 'go') lines.push('勝利星村：幫阿霞拍一張老屋。');
-    if (side.deliver === 'have') lines.push('縣政府：把阿德的文件交出去。');
-    if (side.ring === 'go') lines.push('夜市：套圈套中三個以上。');
-    if (state.flags.metLong && side.race !== 'done') lines.push('高屏溪：騎著車跟阿龍比一場。');
-    if (side.box === 'go') lines.push('巷口有一個封好的紙箱，送到溪邊。');
-    if (side.box === 'carry') lines.push('紙箱在身上，送到高屏溪的交貨點。');
-    if (!lines.length) lines.push('跟阿霞、阿德、春嬌、阿龍多說幾句，會有事找你。');
-    return lines;
-  }
-
-  function jobBlock(id) {
-    var job = JOBS[id];
-    if (state.stamina < 12) return '太累了，先休息或吃點東西。';
-    if ((state.jobsToday[id] || 0) >= 3) return '這種班今天已經三趟。';
-    if (id === 'courier' && state.riding === 'walk' && !state.ownsScooter && !state.ownsCar) return '外送得先有機車或汽車。';
-    if ((id === 'farm' || id === 'port') && isNight() && state.time >= 19 * 60) return '這時候收工了。';
-    return '';
-  }
-  function payOf(job, score, total) {
-    var ratio = total ? score / total : 0;
-    return Math.round(job.pay * (0.6 + 0.6 * ratio));
-  }
-
-  function preview(id) {
-    if (!state || state.over) return { ok: false, title: '……', reason: '' };
-    var map = {
-      sleep: function () { return { ok: true, title: '睡覺', detail: '結束今天' }; },
-      rest: function () { return { ok: state.stamina < 100, title: '躺一下', detail: '回體力', reason: '體力是滿的' }; },
-      breakfast: function () { return foodPreview('吃早餐', 35); },
-      bus: function () { return { ok: state.money >= RULES.busFare, title: '公車', detail: formatMoney(RULES.busFare), reason: '車錢不夠' }; },
-      train: function () { return { ok: state.money >= RULES.trainFare, title: '火車去高雄', detail: formatMoney(RULES.trainFare), reason: '票錢不夠' }; },
-      'bike-shop': function () { return { ok: true, title: '大順機車', detail: '看看車' }; },
-      gas: function () { return { ok: hasVehicle(), title: '南油加油', detail: '油箱', reason: '沒有車可加' }; },
-      'car-shop': function () { return { ok: true, title: '大發汽車', detail: '看看車' }; },
-      mart: function () { return { ok: true, title: '8-12 超商', detail: '買東西或上班' }; },
-      photo: function () {
-        if (state.side.photo === 'go') return { ok: true, title: '拍照', detail: '給阿霞' };
-        return { ok: true, title: '拍老屋', detail: '留個紀念' };
-      },
-      sit: function () { return { ok: true, title: '坐一下', detail: '心情' }; },
-      stroll: function () { return { ok: state.stamina >= 8, title: '散步', detail: '繞公園', reason: '太累了' }; },
-      'drop-note': function () {
-        return state.side.deliver === 'have'
-          ? { ok: true, title: '交文件', detail: '給櫃檯' }
-          : { ok: false, title: '縣政府', detail: '沒有文件', reason: '先去找大學的阿德' };
-      },
-      chun: function () { return { ok: true, title: '春嬌', detail: '六堆的故事' }; },
-      ade: function () { return { ok: true, title: '阿德', detail: '大學' }; },
-      canteen: function () { return foodPreview('自助餐', 45); },
-      mall: function () { return { ok: true, title: '太平洋百貨', detail: '吃或逛' }; },
-      meat: function () { return foodPreview('肉圓', 50); },
-      tea: function () { return foodPreview('青草茶', 25); },
-      ring: function () { return { ok: true, title: '套圈', detail: state.side.ring === 'go' ? '阿霞的委託' : '小遊戲' }; },
-      xia: function () { return { ok: true, title: '阿霞', detail: '夜市' }; },
-      gamble: function () {
-        if (!isNight()) return { ok: false, title: '巷口茶室', detail: '晚上才開', reason: '白天鐵門是拉上的' };
-        if (state.day * 1440 + state.time < state.gambleBan) return { ok: false, title: '巷口茶室', detail: '被請出去了', reason: '這陣子別再進去' };
-        return { ok: state.money >= 100, title: '巷口茶室', detail: '一注 $100', reason: '沒有 $100' };
-      },
-      farm: function () { return jobPreview('farm'); },
-      port: function () { return jobPreview('port'); },
-      long: function () { return { ok: true, title: '阿龍', detail: '溪邊' }; },
-      race: function () {
-        if (!state.flags.metLong) return { ok: false, title: '比賽', detail: '先找阿龍', reason: '阿龍還沒點頭' };
-        if (state.riding === 'walk') return { ok: false, title: '比賽', detail: '要騎著車', reason: '先上車' };
-        if (state.racing) return { ok: true, title: '比賽中', detail: '跟著光球' };
-        return { ok: true, title: '開始比賽', detail: state.side.race === 'done' ? '再比一場' : '第一場' };
-      },
-      'box-drop': function () {
-        return state.carrying
-          ? { ok: true, title: '交出紙箱', detail: '封好的' }
-          : { ok: false, title: '交貨點', detail: '手上沒箱子', reason: '先去巷口拿紙箱' };
-      },
-      'box-take': function () {
-        if (state.side.box !== 'go') return { ok: false, title: '紙箱', detail: '還沒有人託', reason: '先跟阿龍說話' };
-        if (state.carrying) return { ok: true, title: '紙箱', detail: '已經在身上' };
-        return { ok: true, title: '拿起紙箱', detail: '別打開' };
-      },
-      'hot-1': function () { return hotPreview('機車'); },
-      'hot-2': function () { return hotPreview('機車'); },
-      'hot-3': function () { return hotPreview('機車'); },
-      'hot-car': function () { return hotPreview('汽車'); },
-      shove: function () { return { ok: true, title: '推開', detail: '會記一筆' }; }
-    };
-    var fn = map[id];
-    if (!fn) return { ok: false, title: '……', reason: '' };
-    var info = fn();
-    info.ok = !!info.ok;
-    return info;
-  }
-  function foodPreview(title, cost) {
-    if (state.money < cost) return { ok: false, title: title, detail: formatMoney(cost), reason: '錢不夠' };
-    if (state.hunger >= 100) return { ok: false, title: title, detail: '吃不下', reason: '肚子是滿的' };
-    return { ok: true, title: title, detail: formatMoney(cost) };
-  }
-  function jobPreview(id) {
-    var why = jobBlock(id);
-    return { ok: !why, title: JOBS[id].name, detail: '小遊戲', reason: why };
-  }
-  function hotPreview(label) {
-    return { ok: true, title: '騎走' + label, detail: '會有通緝星' };
-  }
-
-  function perform(id) {
-    if (!playing()) return;
-    var info = preview(id);
-    if (!info.ok) { if (info.reason) toast(info.reason); return; }
-    if (id === 'sleep') { ui.confirm = 'sleep'; render(); return; }
-    if (id === 'rest') return doRest();
-    if (id === 'breakfast') return eat(35, 28, 4, 6, 20, '早餐', 'breakfast');
-    if (id === 'bus') return openCard('bus');
-    if (id === 'train') return openCard('train');
-    if (id === 'bike-shop') return openCard('bike');
-    if (id === 'gas') return openCard('gas');
-    if (id === 'car-shop') return openCard('car');
-    if (id === 'mart') return openCard('mart');
-    if (id === 'photo') return doPhoto();
-    if (id === 'sit') return doSit();
-    if (id === 'stroll') return doStroll();
-    if (id === 'drop-note') return doDropNote();
-    if (id === 'chun') return openCard('chun');
-    if (id === 'ade') return openCard('ade');
-    if (id === 'canteen') return eat(45, 30, 4, 8, 25, '自助餐');
-    if (id === 'mall') return openCard('mall');
-    if (id === 'meat') return eat(50, 26, 6, 4, 20, '肉圓');
-    if (id === 'tea') return eat(25, 8, 12, 2, 15, '青草茶');
-    if (id === 'ring') return startRing();
-    if (id === 'xia') return openCard('xia');
-    if (id === 'gamble') return openCard('gamble');
-    if (id === 'farm') return startJob('farm');
-    if (id === 'port') return startJob('port');
-    if (id === 'long') return openCard('long');
-    if (id === 'race') return startRace();
-    if (id === 'box-drop') return dropBox();
-    if (id === 'box-take') return takeBox();
-    if (id === 'hot-1' || id === 'hot-2' || id === 'hot-3') return steal(id, 'scooter');
-    if (id === 'hot-car') return steal(id, 'car');
-    if (id === 'shove') return doShove();
-  }
-
-  function openCard(id) {
-    ui.card = id;
-    render();
-  }
-  function eat(cost, hunger, mood, stamina, mins, label, flag) {
-    if (addMinutes(mins)) return;
-    spend(cost, label + ' ' + formatMoney(cost));
-    bumpStat('hunger', hunger);
-    bumpStat('mood', mood);
-    bumpStat('stamina', stamina);
-    state.ateToday = true;
-    if (flag === 'breakfast') state.flags.breakfast = true;
-    toast(label + '吃完了');
-    save();
-    render();
-  }
-  function doRest() {
-    if (addMinutes(40)) return;
-    bumpStat('stamina', 22);
-    bumpStat('mood', 4);
-    note('在雅房躺了一下');
-    toast('躺了一下');
-    save();
-    render();
-  }
-  function doSit() {
-    if (addMinutes(30)) return;
-    bumpStat('mood', 12);
-    bumpStat('stamina', 4);
-    toast('在千禧公園坐了一會兒');
-    save();
-    render();
-  }
-  function doStroll() {
-    if (addMinutes(40)) return;
-    bumpStat('mood', 14);
-    bumpStat('stamina', -6);
-    toast('公園走完一圈');
-    save();
-    render();
-  }
-  function doPhoto() {
-    if (addMinutes(20)) return;
-    bumpStat('mood', 8);
-    if (state.side.photo === 'go') {
-      state.side.photo = 'done';
-      state.fame = clamp(state.fame + 8, 0, 100);
-      gain(200, '照片交給阿霞，拿到 $200');
-      toast('拍好了，回去找阿霞');
-    } else {
-      state.fame = clamp(state.fame + 1, 0, 100);
-      toast('拍了一張老屋');
-    }
-    save();
-    render();
-  }
-  function doDropNote() {
-    if (addMinutes(15)) return;
-    state.side.deliver = 'done';
-    state.rel.ade = clamp(state.rel.ade + 1, 0, 5);
-    state.fame = clamp(state.fame + 4, 0, 100);
-    gain(250, '文件送到縣政府，阿德給了 $250');
-    toast('文件交出去了');
-    save();
-    render();
-  }
-  function doShove() {
-    if (window.PingWorld) window.PingWorld.shove();
-    if (addMinutes(2)) return;
-    setStars(state.wanted + 1);
-    bumpStat('mood', 2);
-    state.street = clamp(state.street + 1, 0, 100);
-    toast('推了人一把，通緝上升');
-    pop('通緝 +1', 'bad');
-    save();
-    render();
-  }
-  function steal(id, kind) {
-    if (state.hidden.indexOf(id) >= 0) { toast('這台已經不在了'); return; }
-    state.hidden.push(id);
-    if (window.PingWorld) {
-      appliedHide[id] = true;
-      window.PingWorld.hideProp(id);
-    }
-    state.hot = true;
-    state.hotKind = kind;
-    state.hotFuel = 40;
-    state.riding = kind;
-    state.flags.wheels = true;
-    setStars(state.wanted + (kind === 'car' ? 2 : 1));
-    toast(kind === 'car' ? '騎上別人的汽車' : '騎上別人的機車');
-    pop('通緝 +' + (kind === 'car' ? 2 : 1), 'bad');
-    save();
-    render();
-  }
-  function takeBox() {
-    state.carrying = true;
-    state.side.box = 'carry';
-    if (window.PingWorld) window.PingWorld.setCarry(true);
-    toast('紙箱提上了，騎起來會慢一點');
-    save();
-    render();
-  }
-  function dropBox() {
-    state.carrying = false;
-    state.side.box = 'done';
-    if (window.PingWorld) window.PingWorld.setCarry(false);
-    state.street = clamp(state.street + 3, 0, 100);
-    bumpStat('mood', 4);
-    gain(700, '紙箱送到溪邊，拿到 $700');
-    toast('交貨了');
-    if (addMinutes(10)) return;
-    save();
-    render();
-  }
-  function startRace() {
-    if (state.racing) { toast('光球還在前面'); return; }
-    state.racing = true;
-    raceSent = false;
-    toast('跟著綠色光球，跑完五個點');
-    save();
-    render();
-  }
-  function rideBus(place) {
-    if (state.money < RULES.busFare) { toast('車錢不夠'); return; }
-    if (place === state.place) { toast('人已經在這附近'); return; }
-    spend(RULES.busFare, '公車到' + placeLabel(place));
-    if (addMinutes(18)) return;
-    state.place = place;
-    var spawn = window.PingWorld.spawn(place);
-    state.pose = { x: spawn.x, z: spawn.z, ry: spawn.ry };
-    state.forcePose = true;
-    if (place === 'market') state.flags.sawMarket = true;
-    if (place === 'river') state.flags.sawRiver = true;
-    toast('公車到了');
-    ui.card = null;
-    save();
-    render();
-  }
-  function rideTrain() {
-    if (state.money < RULES.trainFare) { toast('票錢不夠'); return; }
-    spend(RULES.trainFare, '火車去高雄晃一圈');
-    bumpStat('mood', 10);
-    bumpStat('hunger', -8);
-    if (addMinutes(90)) return;
-    var spawn = window.PingWorld.spawn('station');
-    state.place = 'station';
-    state.pose = { x: spawn.x, z: spawn.z, ry: spawn.ry };
-    state.forcePose = true;
-    toast('高雄晃完，人回到屏東火車站');
-    ui.card = null;
-    save();
-    render();
-  }
-  function buyScooter() {
-    if (state.ownsScooter) { toast('已經有機車了'); return; }
-    if (state.money < RULES.scooter) { toast('錢不夠'); return; }
-    spend(RULES.scooter, '大順機車買了一台');
-    state.ownsScooter = true;
-    state.flags.wheels = true;
-    state.fuel = Math.max(state.fuel, 40);
-    toast('機車是你的了，油箱裡有一些油');
-    save();
-    render();
-  }
-  function buyUpgrade(kind) {
-    if (!state.ownsScooter) { toast('先有自己的機車'); return; }
-    var cost = kind === 'speed' ? RULES.speedCost : RULES.tankCost;
-    if (state.upgrades[kind]) { toast('這個已經裝過'); return; }
-    if (state.money < cost) { toast('錢不夠'); return; }
-    spend(cost, kind === 'speed' ? '機車加速' : '加大油箱');
-    state.upgrades[kind] = 1;
-    toast(kind === 'speed' ? '騎起來比較衝' : '油箱變大了');
-    save();
-    render();
-  }
-  function buyCar() {
-    if (state.ownsCar) { toast('已經有汽車了'); return; }
-    if (state.money < RULES.car) { toast('錢不夠'); return; }
-    spend(RULES.car, '大發汽車交車');
-    state.ownsCar = true;
-    state.flags.wheels = true;
-    state.fuel = Math.max(state.fuel, 25);
-    toast('汽車是你的了');
-    save();
-    render();
-  }
-  function buyFuel(mode) {
-    var targetHot = state.hot && state.riding !== 'walk';
-    if (!targetHot && !state.ownsScooter && !state.ownsCar) { toast('沒有自己的車可加'); return; }
-    var cap = targetHot ? 40 : fuelMax();
-    var now = targetHot ? state.hotFuel : state.fuel;
-    if (now >= cap) { toast('油是滿的'); return; }
-    if (mode === 'small') {
-      if (state.money < RULES.gasSmall) { toast('錢不夠'); return; }
-      spend(RULES.gasSmall, '南油加了一點');
-      if (targetHot) state.hotFuel = clamp(state.hotFuel + RULES.gasSmallAdd, 0, 40);
-      else state.fuel = clamp(state.fuel + RULES.gasSmallAdd, 0, fuelMax());
-    } else {
-      if (state.money < RULES.gasFull) { toast('錢不夠'); return; }
-      spend(RULES.gasFull, '南油加滿');
-      if (targetHot) state.hotFuel = 40;
-      else state.fuel = fuelMax();
-    }
-    toast('油加好了');
-    save();
-    render();
-  }
-  function shoplift(which) {
-    if (state.shoplift[which] === state.day) { toast('這裡今天已經被你拿過'); return; }
-    state.shoplift[which] = state.day;
-    var amount = which === 'mall' ? 280 : 160;
-    setStars(state.wanted + 2);
-    state.street = clamp(state.street + 1, 0, 100);
-    bumpStat('mood', -2);
-    gain(amount, which === 'mall' ? '百貨順手拿了東西' : '超商順手拿了東西');
-    toast('被看見了，通緝上升');
-    pop('通緝 +2', 'bad');
-    ui.card = null;
-    save();
-    render();
-  }
-  function talk(who) {
-    state.rel[who] = clamp((state.rel[who] || 0) + 1, 0, 5);
-    bumpStat('mood', 3);
-    if (addMinutes(8)) return;
-    if (who === 'xia') {
-      if (state.side.photo !== 'done' && state.side.photo !== 'go' && state.rel.xia >= 1) state.side.photo = 'go';
-      if (state.side.photo === 'done' && state.side.ring !== 'done' && state.side.ring !== 'go') state.side.ring = 'go';
-      toast('跟阿霞說了一會兒');
-    } else if (who === 'ade') {
-      if (state.side.deliver !== 'done' && state.side.deliver !== 'have' && state.rel.ade >= 1) {
-        state.side.deliver = 'have';
-        toast('阿德把文件塞給你');
-      } else toast('跟阿德說了一會兒');
-    } else if (who === 'chun') {
-      state.fame = clamp(state.fame + 2, 0, 100);
-      toast('春嬌講了一段六堆的事');
-    } else if (who === 'long') {
-      state.flags.metLong = true;
-      if ((state.side.race === 'done' || state.street >= 8) && state.side.box !== 'go' && state.side.box !== 'carry') {
-        state.side.box = 'go';
-        toast('阿龍要你送一個封好的紙箱');
-      } else toast('阿龍點點頭');
-    }
-    save();
-    render();
-  }
-  function gamble(cheat) {
-    if (state.money < 100) { toast('沒有 $100'); return; }
-    var player = 1 + Math.floor(Math.random() * 13);
-    var house = 1 + Math.floor(Math.random() * 13);
-    if (cheat) {
-      player = 13;
-      house = 1;
-      setStars(state.wanted + 2);
-      state.street = clamp(state.street + 1, 0, 100);
-      state.gambleBan = state.day * 1440 + state.time + 180;
-      gain(100, '茶室出老千，被趕出來');
-      toast('贏了，也被請出茶室');
-      pop('通緝 +2', 'bad');
-      ui.card = null;
-      save();
-      render();
+function bindInput() {
+  window.addEventListener("keydown", (e) => {
+    if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+    if (e.repeat) return;
+    keys[e.code] = true;
+    audio.resume();
+    if (mode === "dialog") {
+      if (e.code === "Space" || e.code === "Enter" || e.code === "KeyE") advanceDialog();
       return;
     }
-    if (player > house) gain(100, '茶室贏了一把');
-    else if (player < house) spend(100, '茶室輸了一把');
-    else note('茶室這把平手');
-    ui.gambleText = '你 ' + player + ' ，對方 ' + house + (player === house ? '，平手' : player > house ? '，你贏' : '，你輸');
-    toast(ui.gambleText);
-    save();
-    render();
-  }
-
-  function startJob(id) {
-    var why = jobBlock(id);
-    if (why) { toast(why); return; }
-    ui.card = null;
-    ui.shift = id;
-    render();
-    window.PingShift.start(id, function (score, total) { finishJob(id, score, total); }, function () {
-      ui.shift = null;
-      toast('這班不算');
-      note(JOBS[id].name + '放棄了');
-      save();
-      render();
-    });
-  }
-  function finishJob(id, score, total) {
-    if (!state || state.over || state.pendingSummary) { ui.shift = null; return; }
-    ui.shift = null;
-    var job = JOBS[id];
-    var pay = payOf(job, score, total);
-    state.jobsToday[id] = (state.jobsToday[id] || 0) + 1;
-    state.jobCounts[id] = (state.jobCounts[id] || 0) + 1;
-    state.flags.firstjob = true;
-    state.fame = clamp(state.fame + 1, 0, 100);
-    bumpStat('stamina', -job.stamina);
-    bumpStat('mood', score >= total ? 4 : -2);
-    gain(pay, job.name + ' 到手 ' + formatMoney(pay) + '（' + score + '/' + total + '）');
-    toast(job.name + ' 下班，' + formatMoney(pay));
-    if (addMinutes(job.minutes)) return;
-    save();
-    render();
-  }
-  function startRing() {
-    ui.card = null;
-    ui.shift = 'ring';
-    render();
-    window.PingShift.start('ring', function (score, total) {
-      ui.shift = null;
-      if (!state || state.over || state.pendingSummary) return;
-      var prize = Math.round(120 * (total ? score / total : 0));
-      if (prize > 0) gain(prize, '套圈拿到 ' + formatMoney(prize));
-      bumpStat('mood', 6);
-      if (state.side.ring === 'go' && score >= 3) {
-        state.side.ring = 'done';
-        state.fame = clamp(state.fame + 4, 0, 100);
-        toast('套給阿霞看，她請了你');
-      } else toast('套完了，中了 ' + score + ' 個');
-      if (addMinutes(15)) return;
-      save();
-      render();
-    }, function () {
-      ui.shift = null;
-      toast('圈沒套完');
-      render();
-    });
-  }
-
-  function mountToggle() {
-    if (!playing()) return;
-    if (state.riding !== 'walk') {
-      var wasHot = state.hot;
-      var wasRacing = state.racing;
-      state.riding = 'walk';
-      state.racing = false;
-      if (wasHot) {
-        state.hot = false;
-        state.hotKind = '';
-        state.hotFuel = 0;
-        toast(wasRacing ? '棄賽了，車也留在路邊' : '人下來了，那台車留在路邊');
-      } else toast(wasRacing ? '下車，這場不算' : '下車了');
-      save();
-      render();
+    if (mode === "mini") {
+      activities.key(e.code);
+      if (e.code === "Escape") closeMini();
       return;
     }
-    if (state.ownsCar && state.fuel > 0) state.riding = 'car';
-    else if (state.ownsScooter && state.fuel > 0) state.riding = 'scooter';
-    else if ((state.ownsCar || state.ownsScooter) && state.fuel <= 0) { toast('油箱是空的，去南油'); return; }
-    else { toast('還沒有自己的車'); return; }
-    toast(state.riding === 'car' ? '坐進汽車' : '坐上機車');
-    save();
-    render();
-  }
-
-  function noteWalk(units) {
-    if (!playing()) return;
-    var mins = units / 1.6;
-    state.time += mins;
-    state.frac.hunger += mins * 0.09 + units * 0.012;
-    while (state.frac.hunger >= 1) {
-      state.hunger = Math.max(0, state.hunger - 1);
-      state.frac.hunger -= 1;
+    if (e.code === "KeyE") input.interactQueued = true;
+    if (e.code === "KeyF") input.vehicleQueued = true;
+    if (e.code === "KeyH") { honk(sim); audio.sfx("horn"); }
+    if (e.code === "KeyM") toggleMap();
+    if (e.code === "Escape") {
+      if (mode === "map" || mode === "help" || mode === "settings") closeOverlays();
+      else if (mode === "playing") openPause();
+      else if (mode === "pause") closePause();
     }
-    var rate = state.riding === 'car' ? 0.006 : state.riding === 'scooter' ? 0.01 : 0.02;
-    state.frac.stamina += units * rate;
-    while (state.frac.stamina >= 1) {
-      state.stamina = Math.max(0, state.stamina - 1);
-      state.frac.stamina -= 1;
-    }
-    burnFuel(units);
-    if (state.wanted > 0 && window.PingWorld && window.PingWorld.policeDistance() > 20) state.frac.unseen += mins;
-    else state.frac.unseen = 0;
-    if (state.place === 'home' && state.wanted > 0) state.frac.unseen += mins * 2;
-    if (state.frac.unseen >= 50 && state.wanted > 0) {
-      setStars(state.wanted - 1);
-      state.frac.unseen = 0;
-      toast(state.wanted ? '星星少了一顆' : '通緝清掉了');
-      pop(state.wanted ? '通緝 -1' : '通緝清掉', 'good');
-    }
-    state.frac.event -= units;
-    if (state.frac.event <= 0) {
-      state.frac.event = 90 + Math.random() * 40;
-      randomEvent();
-    }
-    if (state.hunger <= 0) clinic();
-    if (state.stamina <= 14 && !stamWarned) { stamWarned = true; toast('腿開始沉了'); }
-    if (state.stamina > 20) stamWarned = false;
-    rememberPose();
-    if (state.time >= 24 * 60) { endDay('midnight'); return; }
-    save();
-    paintHud();
-    if (window.PingWorld) {
-      window.PingWorld.setClock(state.time);
-      window.PingWorld.setTired(state.stamina <= 14);
-    }
-  }
-  function burnFuel(units) {
-    if (state.riding === 'walk') return;
-    var per = state.riding === 'car' ? 0.09 : 0.06;
-    state.frac.fuel += units * per;
-    var whole = Math.floor(state.frac.fuel);
-    if (whole <= 0) return;
-    state.frac.fuel -= whole;
-    if (state.hot) {
-      state.hotFuel = Math.max(0, state.hotFuel - whole);
-      if (state.hotFuel <= 0) {
-        state.riding = 'walk';
-        state.hot = false;
-        state.racing = false;
-        toast('這台車沒油了，人被留在路邊');
-        if (window.PingWorld) window.PingWorld.setRide('walk', speedMul());
-      }
-    } else {
-      var before = state.fuel;
-      state.fuel = Math.max(0, state.fuel - whole);
-      if (before > 0 && state.fuel <= 0) {
-        state.riding = 'walk';
-        state.racing = false;
-        toast('油用完了');
-        if (window.PingWorld) window.PingWorld.setRide('walk', speedMul());
-      }
-    }
-  }
-  function randomEvent() {
-    var roll = Math.random();
-    if (roll < 0.25) {
-      bumpStat('mood', -3);
-      toast('忽然下雨，心情濕了一點');
-    } else if (roll < 0.5) {
-      bumpStat('hunger', 8);
-      bumpStat('mood', 4);
-      toast('路人請了一杯青草茶');
-      pop('青草茶', 'good');
-    } else if (roll < 0.7 && state.wanted === 0) {
-      gain(30, '路上撿到零錢');
-      toast('撿到 $30');
-    } else if (roll < 0.85 && state.riding !== 'walk') {
-      if (state.hot) state.hotFuel = Math.max(0, state.hotFuel - 6);
-      else state.fuel = Math.max(0, state.fuel - 6);
-      toast('壓到小石子，油漏了一點');
-    } else if (state.wanted >= 2) {
-      bumpStat('mood', -2);
-      toast('路口有人揮手，你繞了過去');
-    }
-  }
-  function noteDistrict(place) {
-    if (!playing()) return;
-    state.place = place;
-    if (place === 'market') state.flags.sawMarket = true;
-    if (place === 'river') state.flags.sawRiver = true;
-    var float = $('place-float');
-    if (float && place !== shownPlace) {
-      shownPlace = place;
-      float.hidden = false;
-      float.textContent = placeLabel(place);
-      window.clearTimeout(placeTimer);
-      placeTimer = window.setTimeout(function () { float.hidden = true; }, 1600);
-    }
-    paintHud();
-  }
-  function arrive(place) {
-    if (!state) return;
-    state.place = place;
-    rememberPose();
-    paintHud();
-  }
-  function noteRedLight() {
-    if (!playing() || state.riding === 'walk') return;
-    if (state.fame >= 30 && !state.flags.warned) {
-      state.flags.warned = true;
-      toast('信用夠，這次闖紅燈先警告');
-      return;
-    }
-    setStars(state.wanted + 1);
-    state.fame = clamp(state.fame - 1, 0, 100);
-    toast('闖紅燈，通緝上升');
-    pop('紅燈', 'bad');
-    paintHud();
-    save();
-  }
-  function noteCamera() {
-    if (!playing()) return;
-    if (state.fame >= 30 && !state.flags.warned) {
-      state.flags.warned = true;
-      toast('測速照相閃了一下，這次先警告');
-      return;
-    }
-    setStars(state.wanted + 1);
-    toast('超速被拍到');
-    pop('超速', 'bad');
-    paintHud();
-    save();
-  }
-  function noteBump() {
-    if (!playing()) return;
-    var now = Date.now();
-    if (now - bumpAt < 2500) return;
-    bumpAt = now;
-    bumpStat('mood', -2);
-    toast('跟別的車擦到了');
-  }
-  function policeTouch(dist) {
-    if (!playing() || state.wanted <= 0) { heat = 0; return; }
-    var flag = $('heat-flag');
-    if (flag) flag.hidden = !(dist < 10);
-    if (dist < 2.3) heat += 0.25;
-    else heat = Math.max(0, heat - 0.2);
-    if (heat >= 1.5) bust();
-  }
-  function bust() {
-    if (!state || state.over || ui.bust) return;
-    heat = 0;
-    var stars = state.wanted;
-    var fine = RULES.fine[stars] || 400;
-    var paid = false;
-    var body;
-    if (stars >= 3) {
-      if (state.money >= fine) { spend(fine); paid = true; }
-      var jump = state.time < 7 * 60 ? (7 * 60 - state.time) : (24 * 60 - state.time + 7 * 60);
-      state.time += jump;
-      while (state.time >= 24 * 60) {
-        state.time -= 24 * 60;
-        if (state.day % 7 === 0) {
-          if (state.money >= RULES.rent) spend(RULES.rent, '拘留隔夜，房租還是扣了');
-          else { setStars(0); gameOver('rent'); return; }
-        }
-        state.day += 1;
-      }
-      state.hunger = clamp(state.hunger - 18, 0, 100);
-      bumpStat('stamina', -8);
-      body = '通緝 ' + stars + ' 顆星。在派出所喝茶、抄資料，待到早上。' + (paid ? '罰了 ' + formatMoney(fine) + '。' : '口袋空的，罰單先掛著。');
-    } else if (state.money >= fine) {
-      spend(fine, '派出所罰了 ' + formatMoney(fine));
-      paid = true;
-      body = '通緝 ' + stars + ' 顆星。罰了 ' + formatMoney(fine) + '，人放了。';
-    } else {
-      if (addMinutes(4 * 60)) {
-        setStars(0);
-        return;
-      }
-      body = '錢不夠繳罰單，在裡面喝茶四個小時，看牆上的海報。';
-    }
-    if (state.carrying || state.side.box === 'carry') {
-      state.carrying = false;
-      state.side.box = 'go';
-      body += '紙箱被扣下，以後還能再送。';
-    }
-    state.racing = false;
-    if (state.hot) { state.hot = false; state.hotKind = ''; state.hotFuel = 0; state.riding = 'walk'; }
-    setStars(0);
-    bumpStat('mood', -12);
-    state.fame = clamp(state.fame - 4, 0, 100);
-    ui.bust = { title: '派出所', body: body };
-    ui.card = null;
-    var flag = $('heat-flag');
-    if (flag) flag.hidden = true;
-    save();
-    render();
-  }
-  function noteCheck(at, total) {
-    if (!playing() || !state.racing) return;
-    if (state.riding === 'walk') {
-      state.racing = false;
-      toast('人下車了，這場不算');
-      save();
-      render();
-      return;
-    }
-    if (at < total) {
-      toast('檢查點 ' + at + ' / ' + total);
-      pop(at + '/' + total, 'good');
-      return;
-    }
-    state.racing = false;
-    var first = state.side.race !== 'done';
-    state.side.race = 'done';
-    state.street = clamp(state.street + (first ? 2 : 1), 0, 100);
-    bumpStat('mood', 8);
-    gain(first ? 500 : 200, first ? '溪邊第一場比賽 $500' : '溪邊又比了一場');
-    toast(first ? '第一場跑完了' : '又跑完一場');
-    if ((state.street >= 8 || first) && state.side.box !== 'carry' && state.side.box !== 'go') state.side.box = 'go';
-    save();
-    render();
-  }
-
-  function placeLabel(id) {
-    return window.PingWorld ? window.PingWorld.placeName(id) : id;
-  }
-  function peopleText() {
-    return '阿霞 ' + state.rel.xia + '　阿德 ' + state.rel.ade + '　春嬌 ' + state.rel.chun + '　阿龍 ' + state.rel.long;
-  }
-  function rideLabel() {
-    if (state.riding === 'car') return (state.hot ? '別人的汽車' : '汽車') + ' · 油 ' + Math.round(state.hot ? state.hotFuel : state.fuel);
-    if (state.riding === 'scooter') return (state.hot ? '別人的機車' : '機車') + ' · 油 ' + Math.round(state.hot ? state.hotFuel : state.fuel);
-    if (state.ownsCar || state.ownsScooter) return '車停著 · 油 ' + Math.round(state.fuel);
-    return '';
-  }
-  function paintHud() {
-    if (!state) return;
-    $('hud-name').textContent = state.name;
-    $('hud-day').textContent = '第 ' + state.day + ' 天';
-    $('hud-time').textContent = formatClock(state.time);
-    var ride = $('hud-ride');
-    var rideText = rideLabel();
-    ride.hidden = !rideText;
-    ride.textContent = rideText;
-    var stars = '';
-    for (var i = 0; i < 5; i += 1) stars += i < state.wanted ? '★' : '☆';
-    var wanted = $('hud-wanted');
-    wanted.textContent = state.wanted ? stars : '';
-    wanted.hidden = !state.wanted;
-    $('hud-money').textContent = formatMoney(state.money);
-    $('hud-stamina').textContent = String(Math.round(state.stamina));
-    $('hud-hunger').textContent = String(Math.round(state.hunger));
-    $('hud-mood').textContent = String(Math.round(state.mood));
-    setBar('stamina', state.stamina);
-    setBar('hunger', state.hunger);
-    setBar('mood', state.mood);
-    $('hud-rep').textContent = '信用 ' + state.fame + '　路子 ' + state.street + (state.carrying ? '　提著紙箱' : '');
-    $('objective').textContent = objectiveText();
-    var period = periodOf(state.time);
-    var place = state.place || 'road';
-    var pack = COPY[place] || COPY.road;
-    $('place-name').textContent = placeLabel(place);
-    $('place-desc').textContent = pack[period] || pack.afternoon;
-    $('place-pill').textContent = '屏東';
-    var mount = $('btn-mount');
-    if (mount) mount.textContent = state.riding === 'walk' ? '上車' : '下車';
-    paintRent();
-    var hint = $('hint');
-    if (hint) hint.hidden = !state.hintOn;
-  }
-  function setBar(name, value) {
-    var bar = $(name + '-bar');
-    var meter = $(name + '-meter');
-    if (!bar || !meter) return;
-    var n = clamp(value, 0, 100);
-    bar.style.width = n + '%';
-    meter.setAttribute('aria-valuenow', String(Math.round(n)));
-    bar.classList.toggle('low', n < 35);
-    bar.classList.toggle('critical', n < 15);
-    if (name === 'mood') bar.classList.toggle('ok', n >= 35);
-  }
-  function paintRent() {
-    var track = $('rent-track');
-    var label = $('rent-label');
-    if (!track || !label) return;
-    track.textContent = '';
-    var into = ((state.day - 1) % 7) + 1;
-    for (var i = 1; i <= 7; i += 1) {
-      var dot = document.createElement('i');
-      dot.className = 'rent-dot' + (i < into ? ' done' : i === into ? ' today' : '');
-      if (i === 7) dot.className += ' due';
-      track.appendChild(dot);
-    }
-    label.className = 'rent-label' + (into >= 6 ? ' soon' : '') + (into === 7 ? ' due' : '');
-    label.textContent = into === 7 ? '今天結束繳租 ' + formatMoney(RULES.rent) : '第 7 天繳租 ' + formatMoney(RULES.rent);
-  }
-
-  function button(label, action, extra) {
-    var el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'btn btn-ghost';
-    el.textContent = label;
-    el.dataset.action = action;
-    if (extra) Object.keys(extra).forEach(function (key) { el.dataset[key] = extra[key]; });
-    return el;
-  }
-  function fillCard() {
-    var title = $('card-title');
-    var body = $('card-body');
-    var box = $('card-actions');
-    if (!title || !box || !state) return;
-    box.textContent = '';
-    var card = ui.card;
-    if (card === 'bus') {
-      title.textContent = '公車';
-      body.textContent = '一趟 ' + formatMoney(RULES.busFare) + '，人會直接到那個地方。';
-      BUS.forEach(function (stop) {
-        box.appendChild(button(stop.name, 'bus-go', { place: stop.place }));
-      });
-    } else if (card === 'train') {
-      title.textContent = '往高雄';
-      body.textContent = '買一張 ' + formatMoney(RULES.trainFare) + ' 的票，去高雄晃九十分鐘再回到屏東火車站。屏東這張地圖還是你的。';
-      box.appendChild(button('上車', 'train-go'));
-    } else if (card === 'bike') {
-      title.textContent = '大順機車';
-      body.textContent = state.ownsScooter ? '車已經在你名下。還可以加零件。' : '機車 ' + formatMoney(RULES.scooter) + '，油箱裡附一些油。';
-      if (!state.ownsScooter) box.appendChild(button('買機車 ' + formatMoney(RULES.scooter), 'buy-scooter'));
-      box.appendChild(button(state.upgrades.speed ? '加速已裝' : '加速 ' + formatMoney(RULES.speedCost), 'buy-speed'));
-      box.appendChild(button(state.upgrades.tank ? '油箱已加大' : '加大油箱 ' + formatMoney(RULES.tankCost), 'buy-tank'));
-    } else if (card === 'car') {
-      title.textContent = '大發汽車';
-      body.textContent = state.ownsCar ? '鑰匙在你這裡。' : '一輛 ' + formatMoney(RULES.car) + '。有油的時候，上車會優先開汽車。';
-      if (!state.ownsCar) box.appendChild(button('買汽車 ' + formatMoney(RULES.car), 'buy-car'));
-    } else if (card === 'gas') {
-      title.textContent = '南油加油站';
-      var now = state.hot && state.riding !== 'walk' ? state.hotFuel : state.fuel;
-      var cap = state.hot && state.riding !== 'walk' ? 40 : fuelMax();
-      body.textContent = '現在油量 ' + Math.round(now) + ' / ' + cap + '。小桶 ' + formatMoney(RULES.gasSmall) + '，加滿 ' + formatMoney(RULES.gasFull) + '。';
-      box.appendChild(button('加一點', 'fuel-small'));
-      box.appendChild(button('加滿', 'fuel-full'));
-    } else if (card === 'mart') {
-      title.textContent = '8-12 超商';
-      body.textContent = '飯糰 ' + formatMoney(40) + '。店員和外送都從這裡出發，外送得有車。每種一天三班。';
-      box.appendChild(button('買飯糰 $40', 'buy-rice'));
-      box.appendChild(button('上店員的班', 'job-clerk'));
-      box.appendChild(button('跑外送', 'job-courier'));
-      if (state.shoplift.mart !== state.day) box.appendChild(button('順手拿東西', 'shoplift-mart'));
-    } else if (card === 'mall') {
-      title.textContent = '太平洋百貨';
-      body.textContent = '餐廳一餐 ' + formatMoney(80) + '，吃得比較飽。';
-      box.appendChild(button('吃一餐 $80', 'buy-mall'));
-      if (state.shoplift.mall !== state.day) box.appendChild(button('順手拿東西', 'shoplift-mall'));
-    } else if (card === 'xia') {
-      title.textContent = '阿霞';
-      body.textContent = xiaLine();
-      box.appendChild(button('再聊一下', 'talk-xia'));
-    } else if (card === 'ade') {
-      title.textContent = '阿德';
-      body.textContent = adeLine();
-      box.appendChild(button('再聊一下', 'talk-ade'));
-    } else if (card === 'chun') {
-      title.textContent = '春嬌';
-      body.textContent = '春嬌坐在六堆園區門口。關係 ' + state.rel.chun + '。她講客家聚落的事，聽完信用會高一點。';
-      box.appendChild(button('聽一段', 'talk-chun'));
-    } else if (card === 'long') {
-      title.textContent = '阿龍';
-      body.textContent = longLine();
-      box.appendChild(button('說話', 'talk-long'));
-    } else if (card === 'gamble') {
-      title.textContent = '巷口茶室';
-      body.textContent = (ui.gambleText || '各抽一張牌，點數大的贏 $100。') + ' 路子 ' + state.street + '。出老千會贏，也會被趕出去。';
-      box.appendChild(button('下注 $100', 'gamble-bet'));
-      box.appendChild(button('出老千', 'gamble-cheat'));
-    } else if (card === 'missions') {
-      title.textContent = '委託';
-      body.textContent = missionLines().join(' ');
-      missionLines().forEach(function (line) {
-        var p = document.createElement('p');
-        p.textContent = line;
-        box.appendChild(p);
-      });
-      body.textContent = '做到會有錢、信用或路子。';
-    }
-  }
-  function xiaLine() {
-    if (state.side.photo === 'go') return '阿霞說：勝利星村那排老屋，拍一張給我。';
-    if (state.side.ring === 'go') return '阿霞指著套圈攤：套中幾個，我請你喝茶。';
-    if (state.rel.xia === 0) return '阿霞在攤子後面擦杯子。「第一次來？肉圓在左邊。」';
-    return '阿霞跟你點頭。關係 ' + state.rel.xia + '。';
-  }
-  function adeLine() {
-    if (state.side.deliver === 'have') return '阿德揮揮手：文件送到縣政府門口就好。';
-    if (state.side.deliver === 'done') return '阿德終於抬起頭。「謝了，下次自助餐我請。」';
-    return '阿德抱著一疊紙。「縣政府那份，我走不開。」關係 ' + state.rel.ade + '。';
-  }
-  function longLine() {
-    if (!state.flags.metLong) return '阿龍靠在高屏溪的欄杆上。「會騎車的話，溪邊可以比一場。」';
-    if (state.side.box === 'go' || state.side.box === 'carry') return '阿龍說紙箱封好了，送到溪邊另一個光點，別問裡面。';
-    if (state.side.race !== 'done') return '阿龍等你騎上車，去旁邊的比賽光點。';
-    return '阿龍看了你一眼。路子 ' + state.street + '。再跟他說話，也許還有紙箱。';
-  }
-
-  function renderActions() {
-    var box = $('actions');
-    if (!box) return;
-    box.textContent = '';
-    [
-      ['sleep', '睡覺'], ['rest', '躺一下'], ['breakfast', '早餐'], ['mart', '8-12'],
-      ['bike-shop', '大順機車'], ['gas', '南油'], ['car-shop', '大發汽車'], ['bus', '公車'],
-      ['train', '火車去高雄'], ['farm', '檳榔園'], ['port', '漁港'], ['xia', '找阿霞'],
-      ['meat', '肉圓'], ['tea', '青草茶'], ['ring', '套圈'], ['gamble', '茶室'],
-      ['ade', '找阿德'], ['chun', '找春嬌'], ['long', '找阿龍'], ['photo', '拍照'],
-      ['mall', '百貨'], ['canteen', '自助餐']
-    ].forEach(function (item) {
-      var info = preview(item[0]);
-      var el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'btn btn-ghost';
-      el.dataset.action = 'fallback';
-      el.dataset.pick = item[0];
-      el.textContent = info.title || item[1];
-      el.disabled = !info.ok;
-      box.appendChild(el);
-    });
-  }
-  function renderDay() {
-    $('people').textContent = peopleText();
-    var lines = $('mini-lines');
-    lines.textContent = '';
-    missionLines().forEach(function (text) {
-      var p = document.createElement('p');
-      p.textContent = text;
-      lines.appendChild(p);
-    });
-    var log = $('log');
-    log.textContent = '';
-    (state.log || []).forEach(function (text) {
-      var li = document.createElement('li');
-      li.textContent = text;
-      log.appendChild(li);
-    });
-  }
-  function renderBoard() {
-    var board = loadBoard();
-    var empty = $('board-empty');
-    var list = $('board-list');
-    list.textContent = '';
-    empty.hidden = board.length > 0;
-    board.forEach(function (row) {
-      var li = document.createElement('li');
-      li.textContent = row.name + '　' + formatMoney(row.money) + '　第 ' + row.day + ' 天';
-      list.appendChild(li);
-    });
-  }
-  function renderSummary() {
-    var next = state.pendingSummary;
-    $('summary-kicker').textContent = next.kind === 'midnight' ? '拖過午夜' : '一天結束';
-    var net = $('summary-net');
-    net.textContent = (next.net >= 0 ? '+' : '') + formatMoney(next.net);
-    $('summary-money').textContent = '醒來存款 ' + formatMoney(next.money);
-    var stats = $('summary-stats');
-    stats.textContent = '';
-    [['體力', next.from.stamina, next.stamina], ['飢餓', next.from.hunger, next.hunger], ['心情', next.from.mood, next.mood]].forEach(function (row) {
-      var p = document.createElement('p');
-      var delta = Math.round(row[2] - row[1]);
-      p.textContent = row[0] + ' ' + (delta > 0 ? '+' : '') + delta;
-      stats.appendChild(p);
-    });
-    var notes = $('summary-notes');
-    notes.textContent = '';
-    (next.notes.length ? next.notes : ['這一天很安靜']).forEach(function (text) {
-      var li = document.createElement('li');
-      li.textContent = text;
-      notes.appendChild(li);
-    });
-  }
-  function renderConfirm() {
-    var title = $('confirm-title');
-    var body = $('confirm-body');
-    var yes = $('confirm-yes');
-    body.className = '';
-    if (ui.confirm === 'sleep') {
-      title.textContent = '要睡覺、結束今天嗎？';
-      var hungry = state.hunger < 35;
-      body.textContent = (hungry ? '肚子還空，過夜會掉體力和心情。' : '今天吃得還行。') + '現在 ' + formatClock(state.time) + '。看完結算才會到隔天。';
-      if (hungry) body.className = 'warn-box';
-      yes.textContent = '睡了';
-      return;
-    }
-    if (ui.confirm === 'quit') {
-      title.textContent = '結束這段日子？';
-      body.textContent = '目前存款 ' + formatMoney(state.money) + ' 會記入排行，這份進度就不能再繼續。';
-      yes.textContent = '結束並記入排行';
-      return;
-    }
-    title.textContent = '蓋掉目前的進度？';
-    body.textContent = state.name + ' 進行到第 ' + state.day + ' 天，存款 ' + formatMoney(state.money) + '。新開一局會刪掉這段日子。';
-    yes.textContent = '蓋掉並新開';
-  }
-  function renderOver() {
-    $('over-name').textContent = state.name;
-    $('over-reason').textContent = state.over.text;
-    $('over-money').textContent = formatMoney(state.money);
-    $('over-meta').textContent = '第 ' + state.day + ' 天 · 信用 ' + state.fame + ' · 路子 ' + state.street;
-    var board = loadBoard();
-    var rank = 0;
-    board.forEach(function (row, index) {
-      if (!rank && row.name === state.name && row.money === Math.round(state.money)) rank = index + 1;
-    });
-    $('over-rank').textContent = rank ? '存款排行第 ' + rank + ' 名' : '這筆已在存款排行裡';
-  }
-  function renderTitle() {
-    var saved = state && !ui.naming;
-    $('btn-continue').hidden = !saved;
-    $('title-actions').hidden = !!ui.naming;
-    $('new-form').hidden = !ui.naming;
-    var note = $('title-note');
-    if (saved && state.over) {
-      note.hidden = false;
-      note.textContent = state.name + ' 的上一局已結束，存款 ' + formatMoney(state.money) + '。';
-    } else if (saved) {
-      note.hidden = false;
-      note.textContent = state.name + ' 停在第 ' + state.day + ' 天 ' + formatClock(state.time) + '，存款 ' + formatMoney(state.money) + '。';
-    } else note.hidden = true;
-  }
-
-  function render() {
-    if (!state) ui.screen = 'title';
-    if (ui.screen === 'over' && !(state && state.over)) ui.screen = 'title';
-    $('screen-title').hidden = ui.screen !== 'title';
-    $('screen-play').hidden = !(ui.screen === 'play' && state);
-    $('screen-over').hidden = !(ui.screen === 'over' && state && state.over);
-    renderTitle();
-    var showSummary = !!(state && state.pendingSummary && ui.screen === 'play');
-    if (ui.screen === 'play' && state) {
-      paintHud();
-      if (!window.PingWorld || !window.PingWorld.ready()) renderActions();
-      syncWorld(false);
-    }
-    if (ui.screen === 'over' && state && state.over) renderOver();
-    $('modal-help').hidden = !ui.help;
-    $('modal-board').hidden = !ui.board;
-    $('modal-day').hidden = !(ui.day && ui.screen === 'play' && state);
-    $('modal-card').hidden = !(ui.card && ui.screen === 'play' && state && !showSummary && !ui.shift && !ui.bust);
-    $('modal-shift').hidden = !(ui.shift && ui.screen === 'play' && state && !showSummary);
-    $('modal-summary').hidden = !showSummary;
-    $('modal-bust').hidden = !ui.bust;
-    $('modal-confirm').hidden = !ui.confirm;
-    if (ui.board) renderBoard();
-    if (ui.day && state) renderDay();
-    if (ui.card && state && !showSummary) fillCard();
-    if (showSummary) renderSummary();
-    if (ui.bust) {
-      $('bust-title').textContent = ui.bust.title;
-      $('bust-body').textContent = ui.bust.body;
-    }
-    if (ui.confirm) renderConfirm();
-    var modalOn = ui.help || ui.board || ui.day || !!ui.card || !!ui.shift || !!ui.confirm || !!ui.bust || showSummary;
-    document.body.classList.toggle('modal-open', modalOn);
-    document.body.classList.toggle('has-world', !!(window.PingWorld && window.PingWorld.ready()));
-    document.body.dataset.screen = ui.screen;
-    if (window.PingWorld) {
-      window.PingWorld.setPaused(modalOn || ui.screen !== 'play');
-      window.PingWorld.setActive(ui.screen === 'play' && !!state && !state.over);
-    }
-  }
-
-  function openNaming() {
-    ui.confirm = null;
-    ui.naming = true;
-    ui.screen = 'title';
-    $('player-name').value = '';
-    render();
-    $('player-name').focus();
-  }
-  function onClick(event) {
-    var target = event.target.closest('[data-action]');
-    if (!target || !document.body.contains(target) || target.disabled) return;
-    var action = target.dataset.action;
-    if (action === 'stop') return;
-    if (action === 'open-new') {
-      if (state && !state.over) { ui.confirm = 'new'; render(); }
-      else openNaming();
-      return;
-    }
-    if (action === 'cancel-naming') { ui.naming = false; render(); return; }
-    if (action === 'continue') {
-      if (!state) return;
-      ui.naming = false;
-      ui.screen = state.over ? 'over' : 'play';
-      state.forcePose = true;
-      lastWanted = -1;
-      raceSent = false;
-      render();
-      return;
-    }
-    if (action === 'to-title') {
-      ui = blankUi();
-      if (window.PingShift) window.PingShift.stop();
-      render();
-      return;
-    }
-    if (action === 'restart') { openNaming(); return; }
-    if (action === 'open-help') { ui.help = true; render(); return; }
-    if (action === 'close-help') { ui.help = false; render(); return; }
-    if (action === 'open-board') { ui.board = true; render(); return; }
-    if (action === 'close-board') { ui.board = false; render(); return; }
-    if (action === 'open-day') { if (state && ui.screen === 'play') { ui.day = true; render(); } return; }
-    if (action === 'close-day') { ui.day = false; render(); return; }
-    if (action === 'open-side') { if (playing()) openCard('missions'); return; }
-    if (action === 'dismiss-summary') { dismissSummary(); return; }
-    if (action === 'dismiss-hint') { if (state) { state.hintOn = false; save(); render(); } return; }
-    if (action === 'quit-open') { if (playing()) { ui.confirm = 'quit'; render(); } return; }
-    if (action === 'confirm-no') { ui.confirm = null; render(); return; }
-    if (action === 'confirm-yes') {
-      var which = ui.confirm;
-      ui.confirm = null;
-      if (which === 'quit') gameOver('quit');
-      else if (which === 'sleep') endDay('sleep');
-      else if (which === 'new') openNaming();
-      else render();
-      return;
-    }
-    if (action === 'bust-ok') { ui.bust = null; render(); return; }
-    if (action === 'close-card') { ui.card = null; render(); return; }
-    if (action === 'mount') { mountToggle(); return; }
-    if (action === 'shift-quit') { if (window.PingShift) window.PingShift.cancel(); return; }
-    if (action === 'fallback') { perform(target.dataset.pick); return; }
-    if (!playing()) return;
-    if (action === 'bus-go') return rideBus(target.dataset.place);
-    if (action === 'train-go') return rideTrain();
-    if (action === 'buy-scooter') return buyScooter();
-    if (action === 'buy-speed') return buyUpgrade('speed');
-    if (action === 'buy-tank') return buyUpgrade('tank');
-    if (action === 'buy-car') return buyCar();
-    if (action === 'fuel-small') return buyFuel('small');
-    if (action === 'fuel-full') return buyFuel('full');
-    if (action === 'buy-rice') { ui.card = null; return eat(40, 24, 2, 6, 15, '飯糰'); }
-    if (action === 'buy-mall') { ui.card = null; return eat(80, 36, 8, 10, 40, '百貨餐廳'); }
-    if (action === 'job-clerk') return startJob('clerk');
-    if (action === 'job-courier') return startJob('courier');
-    if (action === 'shoplift-mart') return shoplift('mart');
-    if (action === 'shoplift-mall') return shoplift('mall');
-    if (action === 'talk-xia') return talk('xia');
-    if (action === 'talk-ade') return talk('ade');
-    if (action === 'talk-chun') return talk('chun');
-    if (action === 'talk-long') return talk('long');
-    if (action === 'gamble-bet') return gamble(false);
-    if (action === 'gamble-cheat') return gamble(true);
-  }
-  function onKey(event) {
-    if (event.key !== 'Escape') return;
-    if (state && state.pendingSummary && ui.screen === 'play') return;
-    if (ui.shift || ui.bust) return;
-    if (ui.card) { ui.card = null; render(); return; }
-    if (ui.confirm) { ui.confirm = null; render(); return; }
-    if (ui.day) { ui.day = false; render(); return; }
-    if (ui.help) { ui.help = false; render(); return; }
-    if (ui.board) { ui.board = false; render(); return; }
-    if (ui.naming) { ui.naming = false; render(); }
-  }
-
-  $('new-form').addEventListener('submit', function (event) {
-    event.preventDefault();
-    appliedHide = {};
-    lastWanted = -1;
-    raceSent = false;
-    heat = 0;
-    state = createGame(cleanName($('player-name').value));
-    ui = blankUi();
-    ui.screen = 'play';
-    save();
-    render();
   });
+  window.addEventListener("keyup", (e) => { keys[e.code] = false; if (e.code === "Space") input.accel = false; });
+  window.addEventListener("blur", () => { for (const k of Object.keys(keys)) keys[k] = false; input.accel = false; });
 
-  window.PingGame = {
-    preview: preview,
-    perform: perform,
-    noteWalk: noteWalk,
-    noteDistrict: noteDistrict,
-    arrive: arrive,
-    noteRedLight: noteRedLight,
-    noteCamera: noteCamera,
-    noteBump: noteBump,
-    policeTouch: policeTouch,
-    noteCheck: noteCheck
+  const joy = $("joy");
+  const knob = $("joy-knob");
+  let joyId = null;
+  const moveJoy = (e) => {
+    const rect = joy.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = rect.width * 0.34;
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const mag = Math.hypot(dx, dy) || 1;
+    const clamped = Math.min(mag, maxR);
+    dx = dx / mag * clamped;
+    dy = dy / mag * clamped;
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    input.x = dx / maxR;
+    input.z = -dy / maxR;
   };
+  joy.addEventListener("pointerdown", (e) => {
+    joyId = e.pointerId;
+    joy.setPointerCapture(e.pointerId);
+    audio.resume();
+    moveJoy(e);
+  });
+  joy.addEventListener("pointermove", (e) => { if (e.pointerId === joyId) moveJoy(e); });
+  const endJoy = (e) => {
+    if (e.pointerId !== joyId) return;
+    joyId = null;
+    input.x = 0;
+    input.z = 0;
+    knob.style.transform = "translate(0px, 0px)";
+  };
+  joy.addEventListener("pointerup", endJoy);
+  joy.addEventListener("pointercancel", endJoy);
 
-  document.addEventListener('click', onClick);
-  document.addEventListener('keydown', onKey);
-  state = load();
-  ui.screen = 'title';
-  render();
-})();
+  const hold = (el, fn) => {
+    el.addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); fn(true); });
+    el.addEventListener("pointerup", () => fn(false));
+    el.addEventListener("pointercancel", () => fn(false));
+    el.addEventListener("pointerleave", () => fn(false));
+  };
+  hold($("btn-accel"), (v) => { input.accel = v; });
+  $("btn-interact").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.interactQueued = true; });
+  $("btn-vehicle").addEventListener("pointerdown", (e) => { e.preventDefault(); audio.resume(); input.vehicleQueued = true; });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (mode !== "playing" || (e.button != null && e.button !== 0)) return;
+    lookId = e.pointerId;
+    lookX = e.clientX;
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* already released */ }
+    audio.resume();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== lookId) return;
+    const dx = e.clientX - lookX;
+    lookX = e.clientX;
+    if (Math.abs(dx) < 0.4) return;
+    camYaw = wrapAngle(camYaw - dx * 0.0075);
+    lookHold = 0.85;
+  });
+  const endLook = (e) => {
+    if (e.pointerId !== lookId) return;
+    lookId = null;
+  };
+  canvas.addEventListener("pointerup", endLook);
+  canvas.addEventListener("pointercancel", endLook);
+
+  $("btn-new").addEventListener("click", () => { audio.resume(); beginPlaying(newGame(), true); });
+  $("btn-continue").addEventListener("click", () => {
+    audio.resume();
+    const saved = readSave();
+    if (saved) beginPlaying(saved, false);
+  });
+  $("btn-settings").addEventListener("click", () => openSettings("title"));
+  $("btn-help").addEventListener("click", () => { $("help").hidden = false; });
+  $("btn-help2").addEventListener("click", () => { $("help").hidden = false; });
+  $("help-close").addEventListener("click", () => { $("help").hidden = true; });
+  $("btn-menu").addEventListener("click", () => openPause());
+  $("btn-resume").addEventListener("click", closePause);
+  $("btn-save").addEventListener("click", () => { save(); toast("已儲存"); });
+  $("btn-pause-settings").addEventListener("click", () => openSettings("pause"));
+  $("btn-map").addEventListener("click", () => { $("pause").hidden = true; openMap(); });
+  $("btn-title").addEventListener("click", toTitle);
+  $("btn-mute").addEventListener("click", () => {
+    board.mute = !board.mute;
+    applyAudio();
+    writeBoard(board);
+  });
+  $("settings-close").addEventListener("click", () => {
+    $("settings").hidden = true;
+    if (settingsReturn === "pause") $("pause").hidden = false;
+  });
+  $("music-vol").addEventListener("input", (e) => {
+    board.music = Number(e.target.value) / 100;
+    audio.setMusicVolume(board.music);
+    writeBoard(board);
+  });
+  $("sfx-vol").addEventListener("input", (e) => {
+    board.sfx = Number(e.target.value) / 100;
+    audio.setSfxVolume(board.sfx);
+    writeBoard(board);
+  });
+  $("mute-check").addEventListener("change", (e) => {
+    board.mute = e.target.checked;
+    applyAudio();
+    writeBoard(board);
+  });
+  $("touch-check").addEventListener("change", (e) => {
+    board.showTouch = e.target.checked ? "on" : "off";
+    writeBoard(board);
+  });
+  $("map-close").addEventListener("click", () => { $("map").hidden = true; if (mode === "map") mode = "playing"; });
+  $("map-city").addEventListener("click", () => { mapRegion = "city"; });
+  $("map-kenting").addEventListener("click", () => { mapRegion = "kenting"; });
+  $("mini-canvas").addEventListener("pointerdown", (e) => activities.pointer(e));
+  $("mini-close").addEventListener("click", closeMini);
+  $("ending-free").addEventListener("click", () => {
+    state.chapter = "free";
+    mode = "playing";
+    $("ending").hidden = true;
+    save();
+  });
+  $("ending-title-btn").addEventListener("click", toTitle);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      freezeTimers();
+      save();
+    } else resumeTimers();
+  });
+  window.addEventListener("pagehide", () => { freezeTimers(); save(); });
+}
+
+function freezeTimers() {
+  if (!state) return;
+  if (state.job && state.job.deadline) state.job.left = Math.max(0, (state.job.deadline - performance.now()) / 1000);
+  if (race) race.elapsed = (performance.now() - race.start) / 1000;
+}
+
+function resumeTimers() {
+  if (!state) return;
+  if (state.job && state.job.left > 0) state.job.deadline = performance.now() + state.job.left * 1000;
+  if (race && Number.isFinite(race.elapsed)) race.start = performance.now() - race.elapsed * 1000;
+}
+
+function newGame() {
+  const next = defaultState();
+  next.x = world.spawn.x;
+  next.z = world.spawn.z;
+  next.yaw = world.spawn.yaw;
+  return next;
+}
+
+function openSettings(from) {
+  settingsReturn = from;
+  $("settings").hidden = false;
+  audio.resume();
+}
+function openPause() {
+  if (!state || mode === "title") return;
+  mode = "pause";
+  $("pause").hidden = false;
+  renderRecords();
+}
+function closePause() {
+  $("pause").hidden = true;
+  if (mode === "pause") mode = "playing";
+}
+function closeOverlays() {
+  $("map").hidden = true;
+  $("help").hidden = true;
+  $("settings").hidden = true;
+  if (mode === "map") mode = "playing";
+}
+function openMap() {
+  if (!state) return;
+  mode = "map";
+  $("map").hidden = false;
+}
+function toggleMap() {
+  if (!state || mode === "title" || mode === "pause") return;
+  if (mode === "map") { $("map").hidden = true; mode = "playing"; }
+  else openMap();
+}
+function toTitle() {
+  save();
+  mode = "title";
+  $("hud").hidden = true;
+  $("pause").hidden = true;
+  $("ending").hidden = true;
+  $("map").hidden = true;
+  $("title").hidden = false;
+  $("btn-continue").disabled = !hasSave();
+  document.body.classList.remove("show-touch");
+}
+
+function say(lines) {
+  dialog = { lines, i: 0 };
+  mode = "dialog";
+  renderDialog();
+}
+function renderDialog() {
+  const el = $("dialog");
+  if (!dialog) { el.hidden = true; return; }
+  el.hidden = false;
+  const line = dialog.lines[dialog.i];
+  $("dlg-name").textContent = line.name || "";
+  $("dlg-text").textContent = line.text || "";
+  const box = $("dlg-choices");
+  box.replaceChildren();
+  if (line.choices) {
+    for (const choice of line.choices) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = choice.label;
+      button.addEventListener("click", () => {
+        dialog = null;
+        el.hidden = true;
+        if (mode === "dialog") mode = "playing";
+        choice.run();
+      });
+      box.appendChild(button);
+    }
+  } else {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = dialog.i < dialog.lines.length - 1 ? "繼續" : "好";
+    button.addEventListener("click", advanceDialog);
+    box.appendChild(button);
+  }
+}
+function advanceDialog() {
+  if (!dialog) return;
+  if (dialog.lines[dialog.i].choices) return;
+  dialog.i += 1;
+  if (dialog.i >= dialog.lines.length) {
+    dialog = null;
+    $("dialog").hidden = true;
+    if (mode === "dialog") mode = "playing";
+  } else renderDialog();
+}
+
+function toast(text) {
+  const el = $("toast");
+  el.hidden = false;
+  el.textContent = text;
+  toastTimer = 2.6;
+}
+function fade(fn) {
+  const el = $("fade");
+  el.classList.add("on");
+  window.setTimeout(() => {
+    fn();
+    el.classList.remove("on");
+  }, 260);
+}
+function addMoney(n) { state.money = Math.max(0, state.money + n); }
+function addWanted(n) {
+  const before = state.wanted;
+  state.wanted = clamp(state.wanted + n, 0, 5);
+  if (state.wanted > before) {
+    toast(state.wanted >= 5 ? "通緝五顆星，直升機來了" : `通緝 ${state.wanted} 顆星`);
+    state.heat += 1;
+  }
+}
+function removeInteract(item) {
+  world.interactables = world.interactables.filter((it) => it !== item);
+}
+function enter(id) {
+  const room = world.interiors[id];
+  if (!room) return;
+  fade(() => {
+    state.inside = id;
+    state.riding = null;
+    speedV = 0;
+    state.x = room.spawn.x;
+    state.z = room.spawn.z;
+    state.yaw = room.spawn.yaw;
+    camYaw = state.yaw;
+  });
+}
+function exitInterior() {
+  const room = world.interiors[state.inside];
+  if (!room) return;
+  fade(() => {
+    const out = room.outside;
+    state.inside = null;
+    state.x = out.x;
+    state.z = out.z;
+    state.yaw = out.yaw;
+    camYaw = state.yaw;
+  });
+}
+function openActivity(name, opts) {
+  activities.open(name, opts);
+  $("mini-title").textContent = activities.label();
+  $("mini").hidden = false;
+  mode = "mini";
+}
+function closeMini() {
+  if (activities.active()) activities.close();
+  $("mini").hidden = true;
+  if (mode === "mini") mode = "playing";
+}
+
+function startRace() {
+  if (state.money < 200) { toast("報名費要 $200"); return; }
+  if (state.inside) { toast("先出門"); return; }
+  state.money -= 200;
+  addWanted(2);
+  if (!state.riding) {
+    state.riding = "scooter";
+    state.vehicleTint = state.vehicleTint || [0.9, 0.2, 0.16];
+  }
+  state.x = 0;
+  state.z = -16;
+  state.yaw = Math.PI;
+  camYaw = state.yaw;
+  speedV = 0;
+  race = { i: 0, start: performance.now(), warn: 0, opp: 0 };
+  toast("街跑開始，跟著光門");
+  audio.sfx("horn");
+}
+function startDelivery() {
+  if (state.job) { toast("先完成手上的差事"); return; }
+  if (state.chapter === "intro") { toast("先去跟陳桑打招呼"); return; }
+  const spot = farSpot(55);
+  state.job = { type: "delivery", phase: "drop", x: spot.x, z: spot.z, left: 75, deadline: performance.now() + 75000 };
+  toast("餐點好了，跟著箭頭送");
+}
+function startCrate() {
+  if (state.path !== "under") { toast("這箱鳳梨酥不關你的事"); return; }
+  if (state.job) { toast("先送完這一趟"); return; }
+  const drop = crateDrops()[Math.min(state.crates, 2)];
+  state.job = { type: "crate", phase: "drop", x: drop.x, z: drop.z, left: 90, deadline: performance.now() + 90000 };
+  addWanted(1);
+  toast("箱子綁上了，送到亮處");
+}
+function farSpot(minDist) {
+  let pick = world.sidewalks[0];
+  for (let n = 0; n < 12; n++) {
+    const s = world.sidewalks[(Math.random() * world.sidewalks.length) | 0];
+    if (Math.hypot(s.x - state.x, s.z - state.z) > minDist) return s;
+    pick = s;
+  }
+  return pick;
+}
+
+function showEnding(kind) {
+  const copy = kind === "honest"
+    ? "阿霞把招牌交給你的那天，夜市還是一樣吵。你的店從星村賣到黑鮪魚季，屏東的人開始用你的名字叫那碗湯。沒有通緝、沒有直升機，只有打烊後還亮著的燈。"
+    : "阿龍把夜市這一帶的氣氛交給你。沒有血腥的加冕，只有一整排被你贏過的機車、三個會喊哩賀的夥伴，還有認得你尾燈的警察。這是虛構的屏東之夜，燈籠還是會在十一點亮起。";
+  state.chapter = kind === "honest" ? "honest_end" : "under_end";
+  if (!state.endingsSeen.includes(kind)) state.endingsSeen.push(kind);
+  if (!board.endings.includes(kind)) board.endings.push(kind);
+  writeBoard(board);
+  $("ending-title").textContent = kind === "honest" ? "結局 · 屏東好店長" : "結局 · 屏東的夜";
+  $("ending-text").textContent = copy;
+  $("ending").hidden = false;
+  mode = "ending";
+  audio.sfx("win");
+  save();
+}
+
+function save() {
+  if (!state || mode === "title") return;
+  if (state.job && state.job.deadline) state.job.left = Math.max(0, (state.job.deadline - performance.now()) / 1000);
+  if (race) state.race = { i: race.i, elapsed: (performance.now() - race.start) / 1000 };
+  else state.race = null;
+  board.shifts = Math.max(board.shifts || 0, state.shifts || 0);
+  board.rep = Math.max(board.rep || 0, state.rep || 0);
+  board.heat = Math.max(board.heat || 0, state.heat || 0);
+  writeSave(state);
+  writeBoard(board);
+  state.race = null;
+}
+
+function renderRecords() {
+  const ends = board.endings.map((e) => (e === "honest" ? "店長" : "夜路")).join("、") || "尚未達成";
+  const raceBest = board.races[0] ? `${board.races[0].time.toFixed(1)} 秒` : "尚無";
+  $("records").textContent = `結局：${ends}\n街跑最佳：${raceBest}\n班次 ${board.shifts || 0}　善名 ${board.rep || 0}　風聲 ${board.heat || 0}`;
+}
+
+let last = performance.now();
+let fpsWindow = 0;
+let fpsFrames = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!document.hidden) {
+    update(dt);
+    render();
+    fpsWindow += dt;
+    fpsFrames += 1;
+    if (fpsWindow >= 1.2) {
+      renderer.adaptQuality(fpsFrames / fpsWindow);
+      if (fpsFrames / fpsWindow < 28 && sim) {
+        if (sim.peds.length > 10) sim.peds.length = 10;
+        if (sim.traffic.length > 8) sim.traffic.length = 8;
+      }
+      fpsWindow = 0;
+      fpsFrames = 0;
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+function update(dt) {
+  blink += dt;
+  shake = Math.max(0, shake - dt);
+  if (mode === "title") {
+    titleTime += dt * CLOCK_RATE;
+    audio.setScene("title");
+    audio.update();
+    return;
+  }
+  if (!state) return;
+  if (mode !== "pause" && mode !== "ending") advanceClock(state, dt);
+  document.body.classList.toggle("raining", state.time < state.rainUntil && !state.inside);
+  if (mode === "playing") {
+    updatePlayer(dt);
+    updateSim(sim, game, dt);
+    if (sim.caught) bust();
+    updateJob(dt);
+    updateRace(dt);
+    updateStory(game, dt);
+    collisions(dt);
+    decayWanted(dt);
+  } else if (mode === "mini") {
+    activities.update(dt);
+    activities.draw();
+    if (!activities.active()) {
+      $("mini").hidden = true;
+      mode = "playing";
+    }
+  } else if (mode === "dialog" || mode === "map") {
+    /* clock already advanced; world waits */
+  }
+  if (toastTimer > 0) {
+    toastTimer -= dt;
+    if (toastTimer <= 0) $("toast").hidden = true;
+  }
+  if (bannerUntil && performance.now() > bannerUntil) {
+    $("banner").hidden = true;
+    bannerUntil = 0;
+  }
+  audio.setScene(sceneName());
+  audio.update();
+  audio.tickSiren();
+  audio.setChase(state.wanted >= 2 && mode === "playing" ? Math.min(1, 0.35 + state.wanted * 0.12) : 0);
+  audio.setEngine(state.riding && mode === "playing" ? gameSpeed : 0);
+  updateHud();
+  saveTimer += dt;
+  if (saveTimer > 20) { saveTimer = 0; save(); }
+  syncTouch();
+}
+
+function sceneName() {
+  if (mode === "title") return "title";
+  if (mode === "ending") return "home";
+  if (!state) return "day";
+  if (state.inside === "jail") return "jail";
+  if (state.inside === "home" || state.inside === "shop") return "home";
+  if (state.wanted >= 2) return "chase";
+  if (sim?.nearParade) return "festival";
+  const hour = ((state.time % 86400) / 3600);
+  const market = inZone("market", state.x, state.z) && (hour >= 17 || hour < 1);
+  if (market && (!state.riding || gameSpeed < 7)) return "market";
+  if (inZone("kenting", state.x, state.z) && (!state.riding || gameSpeed < 8)) return "kenting";
+  if (state.riding) return "drive";
+  if (hour >= 19 || hour < 5.5) return "night";
+  return "day";
+}
+
+function updatePlayer(dt) {
+  const grid = state.inside ? world.interiorGrids[state.inside] : world.grid;
+  const riding = state.riding;
+  const radius = riding === "car" ? 1.15 : riding === "scooter" ? 0.7 : 0.34;
+  let ix = input.x;
+  let iz = input.z;
+  if (keys.KeyA || keys.ArrowLeft) ix -= 1;
+  if (keys.KeyD || keys.ArrowRight) ix += 1;
+  if (keys.KeyW || keys.ArrowUp) iz += 1;
+  if (keys.KeyS || keys.ArrowDown) iz -= 1;
+  const mag = Math.hypot(ix, iz);
+  const nx = mag > 1 ? ix / mag : ix;
+  const nz = mag > 1 ? iz / mag : iz;
+  const thrust = input.accel || !!keys.Space || nz > 0.5;
+  const rain = state.time < state.rainUntil ? 0.86 : 1;
+
+  if (!riding) {
+    if (mag > 0.12) {
+      const fx = Math.sin(camYaw);
+      const fz = Math.cos(camYaw);
+      const rx = -Math.cos(camYaw);
+      const rz = Math.sin(camYaw);
+      let mx = rx * nx + fx * nz;
+      let mz = rz * nx + fz * nz;
+      const len = Math.hypot(mx, mz) || 1;
+      mx /= len; mz /= len;
+      state.yaw = Math.atan2(mx, mz);
+      const sprint = (thrust || keys.ShiftLeft || keys.ShiftRight) && state.stamina > 1;
+      const spd = (sprint ? 6.5 : 3.2) * Math.min(1, mag);
+      if (sprint) state.stamina = Math.max(0, state.stamina - 18 * dt);
+      else state.stamina = Math.min(100, state.stamina + 8 * dt);
+      gameSpeed = spd;
+      state.x += mx * spd * dt;
+      state.z += mz * spd * dt;
+      walkPhase += spd * dt * 2.2;
+    } else {
+      gameSpeed = 0;
+      state.stamina = Math.min(100, state.stamina + 16 * dt);
+    }
+    lean = 0;
+  } else {
+    const max = (riding === "car" ? 34 : 24) * rain;
+    const accel = riding === "car" ? 12 : 15;
+    if (thrust) speedV = Math.min(max, speedV + accel * dt);
+    else if (nz < -0.35 || keys.KeyS || keys.ArrowDown) speedV = Math.max(-6, speedV - accel * dt);
+    else speedV *= Math.exp(-1.35 * dt);
+    const turnRate = (riding === "car" ? 1.5 : 2.2) * clamp(Math.abs(speedV) / 8, 0.28, 1);
+    state.yaw -= nx * turnRate * dt * (speedV < 0 ? -1 : 1);
+    lean = clamp(nx * 0.28, -0.3, 0.3);
+    state.x += Math.sin(state.yaw) * speedV * dt;
+    state.z += Math.cos(state.yaw) * speedV * dt;
+    wheelSpin += speedV * dt / 0.32;
+    gameSpeed = Math.abs(speedV);
+    state.stamina = Math.min(100, state.stamina + 6 * dt);
+    walkPhase += dt * 2;
+  }
+
+  const resolved = resolveCircle(grid, state.x, state.z, radius);
+  if (resolved.hit && riding) speedV *= 0.5;
+  state.x = resolved.x;
+  state.z = resolved.z;
+  if (!state.inside) {
+    const limited = limitWorld(state.x, state.z);
+    state.x = limited.x;
+    state.z = limited.z;
+    state.y = worldGround(state.x, state.z);
+  } else state.y = 0;
+
+  if (input.interactQueued) {
+    input.interactQueued = false;
+    const item = nearestInteract();
+    if (item) interactItem(game, item);
+    else if (state.riding) toast("附近沒有可互動的東西");
+  }
+  if (input.vehicleQueued) {
+    input.vehicleQueued = false;
+    toggleVehicle();
+  }
+  if (lookId != null) lookHold = 0.85;
+  else lookHold = Math.max(0, lookHold - dt);
+  const steering = Math.abs(nx) > 0.2;
+  if (riding && lookId == null && lookHold <= 0 && !steering) {
+    camYaw = dampAngle(camYaw, state.yaw, 1.5, dt);
+  }
+}
+
+function limitWorld(x, z) {
+  let nx = x;
+  let nz = z;
+  if (nz < -170 && nz > -840 && nx > waterEdgeX(nz)) {
+    nx = waterEdgeX(nz);
+    speedV *= 0.3;
+  }
+  if (nz <= -840 && nx > waterEdgeX(nz)) nx = waterEdgeX(nz);
+  if (nz < -170 && nz > -840) {
+    const minX = Math.sin(highwayTFromZ(nz) * Math.PI * 2) * 28 - 30;
+    if (nx < minX) nx = minX;
+  }
+  if (nz > -160) {
+    nx = clamp(nx, -185, 175);
+    nz = clamp(nz, -165, 208);
+  }
+  nz = clamp(nz, -1090, 208);
+  nx = clamp(nx, -200, 190);
+  return { x: nx, z: nz };
+}
+
+function toggleVehicle() {
+  if (state.inside) { toast("室內沒有車"); return; }
+  if (state.riding) {
+    const side = 1.5;
+    world.parked.push({
+      id: "drop-" + Math.random(),
+      type: state.riding,
+      x: state.x + Math.cos(state.yaw) * side,
+      z: state.z - Math.sin(state.yaw) * side,
+      yaw: state.yaw,
+      tint: state.vehicleTint || [0.8, 0.2, 0.2],
+      owned: !state.stolen,
+    });
+    state.x += Math.cos(state.yaw) * side;
+    state.z -= Math.sin(state.yaw) * side;
+    state.riding = null;
+    state.stolen = false;
+    speedV = 0;
+    audio.sfx("click");
+    return;
+  }
+  let best = null;
+  let bestD = 2.8 * 2.8;
+  for (const v of world.parked) {
+    const d = dist2(state.x, state.z, v.x, v.z);
+    if (d < bestD) { bestD = d; best = v; }
+  }
+  if (best) {
+    mount(best, false);
+    return;
+  }
+  let traffic = null;
+  bestD = 3 * 3;
+  for (const v of sim.traffic) {
+    if (v.speed > 2.5) continue;
+    const d = dist2(state.x, state.z, v.x, v.z);
+    if (d < bestD) { bestD = d; traffic = v; }
+  }
+  if (traffic) {
+    sim.traffic.splice(sim.traffic.indexOf(traffic), 1);
+    mount({ type: traffic.type, x: traffic.x, z: traffic.z, yaw: traffic.yaw, tint: traffic.tint, owned: false }, true);
+  } else toast("附近沒有可騎的車");
+}
+
+function mount(v, fromTraffic) {
+  state.riding = v.type === "car" ? "car" : "scooter";
+  state.vehicleTint = v.tint || [0.8, 0.15, 0.12];
+  state.stolen = !v.owned;
+  state.x = v.x;
+  state.z = v.z;
+  state.yaw = v.yaw || state.yaw;
+  speedV = 0;
+  if (!fromTraffic) world.parked = world.parked.filter((p) => p !== v);
+  if (!v.owned) {
+    addWanted(1);
+    toast("這不是你的車");
+  } else audio.sfx("click");
+}
+
+function nearestInteract() {
+  const list = interiorSpots();
+  let best = null;
+  let bestD = 3.1 * 3.1;
+  for (const item of list) {
+    const d = dist2(state.x, state.z, item.x, item.z);
+    if (d < bestD) { bestD = d; best = item; }
+  }
+  return best;
+}
+function interiorSpots() {
+  if (state.inside === "home") {
+    const room = world.interiors.home;
+    return [
+      { id: "exit", type: "exit", name: "出門", x: room.exit.x, z: room.exit.z },
+      { id: "bed", type: "bed", name: "床", x: 1998.4, z: 1999.6 },
+    ];
+  }
+  if (state.inside === "shop") {
+    const room = world.interiors.shop;
+    return [
+      { id: "exit", type: "exit", name: "出門", x: room.exit.x, z: room.exit.z },
+      { id: "shop-counter", type: "counter", name: "開始營業", x: room.counter.x, z: room.counter.z },
+    ];
+  }
+  if (state.inside === "jail") {
+    return [{ id: "exit", type: "exit", name: "離開派出所", x: world.interiors.jail.exit.x, z: world.interiors.jail.exit.z }];
+  }
+  return world.interactables;
+}
+
+function collisions() {
+  if (!state.riding) return;
+  for (const ped of sim.peds) {
+    if (dist2(state.x, state.z, ped.x, ped.z) < 1.5 * 1.5 && gameSpeed > 7) {
+      ped.x += Math.sin(state.yaw) * 1.2;
+      ped.z += Math.cos(state.yaw) * 1.2;
+      ped.flee = 2;
+      if (ped.cool <= 0) {
+        ped.cool = 2;
+        addWanted(1);
+        audio.sfx("yelp");
+        toast("撞到路人了");
+        shake = 0.35;
+        speedV *= 0.4;
+      }
+    }
+  }
+  for (const v of sim.traffic) {
+    const reach = (state.riding === "car" ? 2.2 : 1.5);
+    if (dist2(state.x, state.z, v.x, v.z) < reach * reach && gameSpeed > 4) {
+      speedV *= 0.35;
+      v.speed *= 0.3;
+      shake = 0.3;
+    }
+  }
+  for (const cop of sim.police) {
+    if (cop.kind === "foot") continue;
+    const reach = 2.3;
+    if (dist2(state.x, state.z, cop.x, cop.z) < reach * reach && gameSpeed > 8) {
+      speedV *= 0.3;
+      cop.speed *= 0.2;
+      shake = 0.45;
+      addWanted(1);
+    }
+  }
+  for (const block of sim.roadblocks) {
+    const dx = state.x - block.x;
+    const dz = state.z - block.z;
+    const d = Math.hypot(dx, dz);
+    const min = state.riding === "car" ? 2.5 : 2.1;
+    if (d < min && d > 0.001) {
+      state.x = block.x + (dx / d) * min;
+      state.z = block.z + (dz / d) * min;
+      if (gameSpeed > 5) { speedV *= 0.2; shake = 0.5; toast("路障擋住了"); }
+    }
+  }
+}
+
+function decayWanted(dt) {
+  if (state.wanted <= 0) return;
+  if (state.time < state.wantedLock) return;
+  if (sim.seenPlayer) state.loseSight = 0;
+  else state.loseSight = (state.loseSight || 0) + dt;
+  if (state.loseSight > 9) {
+    state.wanted -= 1;
+    state.loseSight = 0;
+    if (state.wanted === 0) toast("警察跟丟了");
+  }
+}
+
+function bust() {
+  if (mode !== "playing" || bustLock) return;
+  bustLock = true;
+  const fine = Math.max(200, Math.round(state.money * 0.12));
+  state.money = Math.max(0, state.money - fine);
+  state.wanted = 0;
+  state.riding = null;
+  speedV = 0;
+  race = null;
+  state.job = null;
+  state.time += 6 * 3600;
+  audio.sfx("jail");
+  fade(() => {
+    state.inside = "jail";
+    const room = world.interiors.jail;
+    state.x = room.spawn.x;
+    state.z = room.spawn.z;
+    state.yaw = room.spawn.yaw;
+    bustLock = false;
+    say([
+      { name: "值班員警", text: `你被帶回派出所。罰了 ${fine} 元，時間也跳過了六小時。這是卡通化的收場，沒有人受傷。` },
+      { name: "值班員警", text: "門可以開。出去之後，星會清掉。" },
+    ]);
+  });
+}
+
+function updateJob(dt) {
+  if (!state.job) return;
+  state.job.left = Math.max(0, (state.job.deadline - performance.now()) / 1000);
+  const d = Math.hypot(state.x - state.job.x, state.z - state.job.z);
+  if (d < 3.3) {
+    if (state.job.type === "delivery") {
+      const pay = 180 + Math.round(state.job.left * 3);
+      state.money += pay;
+      state.deliveries += 1;
+      state.rep += 1;
+      const used = 75 - state.job.left;
+      if (board.bestDelivery == null || used < board.bestDelivery) board.bestDelivery = used;
+      audio.sfx("coin");
+      toast(`送到了，入帳 ${pay} 元`);
+    } else {
+      state.crates += 1;
+      state.money += 450;
+      state.heat += 1;
+      audio.sfx("coin");
+      toast(`箱子送到，阿龍給了 450 元（${state.crates}/3）`);
+      if (state.crates >= 3 && state.chapter === "under_crate") state.chapter = "under_recruit";
+    }
+    state.job = null;
+    save();
+    return;
+  }
+  if (state.job.left <= 0) {
+    toast(state.job.type === "delivery" ? "外送逾時了" : "箱子沒送到");
+    audio.sfx("lose");
+    state.job = null;
+  }
+}
+
+function updateRace(dt) {
+  if (!race) return;
+  const pts = RACE_POINTS;
+  const target = pts[Math.min(race.i, pts.length - 1)];
+  if (Math.hypot(state.x - target.x, state.z - target.z) < 7) race.i += 1;
+  const elapsed = (performance.now() - race.start) / 1000;
+  race.opp = elapsed / 46;
+  let off = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = pointSegment(state.x, state.z, pts[i], pts[i + 1]);
+    off = i === 0 ? d : Math.min(off, d);
+  }
+  if (off > 28) race.warn += dt;
+  else race.warn = Math.max(0, race.warn - dt);
+  if (race.i >= pts.length - 1 && race.opp < 1) {
+    const time = elapsed;
+    state.money += 900;
+    board.races.push({ name: "中正路", time });
+    board.races.sort((a, b) => a.time - b.time);
+    board.races = board.races.slice(0, 5);
+    writeBoard(board);
+    if (state.chapter === "under_race") state.chapter = "under_tag";
+    state.flags.raceWon = true;
+    audio.sfx("win");
+    toast(`你贏了，${time.toFixed(1)} 秒，獎金 $900`);
+    race = null;
+    save();
+  } else if (race.opp >= 1 || race.warn > 3.2) {
+    audio.sfx("lose");
+    toast(race.warn > 3 ? "偏離賽道，比賽取消" : "阿志先到終點");
+    race = null;
+  }
+}
+
+function pointSegment(px, pz, a, b) {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const l2 = dx * dx + dz * dz || 1;
+  let t = ((px - a.x) * dx + (pz - a.z) * dz) / l2;
+  t = clamp(t, 0, 1);
+  return Math.hypot(px - (a.x + dx * t), pz - (a.z + dz * t));
+}
+
+function updateHud() {
+  const goal = activeGoal();
+  $("money").textContent = formatMoney(state.money);
+  $("clock").textContent = formatClock(state.time);
+  const stars = "★★★★★".slice(0, state.wanted) + "☆☆☆☆☆".slice(state.wanted);
+  $("stars").textContent = stars;
+  $("stam-fill").style.width = `${clamp(state.stamina, 0, 100)}%`;
+  $("goal-title").textContent = goal.title;
+  $("goal-sub").textContent = goal.detail || "";
+  const dx = goal.x - state.x;
+  const dz = goal.z - state.z;
+  const dist = Math.hypot(dx, dz);
+  // Screen-relative: same right basis as walking / the drawn camera.
+  const fx = Math.sin(camYaw);
+  const fz = Math.cos(camYaw);
+  const rx = -Math.cos(camYaw);
+  const rz = Math.sin(camYaw);
+  const ang = wrapAngle(Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz));
+  const distText = dist > 999 ? `${Math.round(dist / 100) / 10} km` : `${Math.round(dist)} 公尺`;
+  $("compass-arrow").style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
+  $("compass-bearing").textContent = bearingLabel(ang);
+  $("compass-dist").textContent = distText;
+  updateGuide(goal, dist, ang, distText);
+  const item = nearestInteract();
+  const prompt = $("prompt");
+  if (item && mode === "playing") {
+    prompt.hidden = false;
+    prompt.textContent = state.riding && item.type !== "npc" && item.type !== "delivery" && item.type !== "crate"
+      ? `下車後再${item.name}`
+      : `互動 · ${item.name}`;
+  } else if (state.riding && mode === "playing") {
+    prompt.hidden = false;
+    prompt.textContent = "乘車鍵可以下車";
+  } else prompt.hidden = true;
+  $("btn-interact").classList.toggle("ready", !!item);
+  drawMinimap();
+  if (!$("map").hidden) drawBigMap();
+}
+
+function bearingLabel(ang) {
+  const deg = ((ang * 180) / Math.PI + 360) % 360;
+  if (deg < 22.5 || deg >= 337.5) return "正前方";
+  if (deg < 67.5) return "右前方";
+  if (deg < 112.5) return "正右方";
+  if (deg < 157.5) return "右後方";
+  if (deg < 202.5) return "正後方";
+  if (deg < 247.5) return "左後方";
+  if (deg < 292.5) return "正左方";
+  return "左前方";
+}
+
+function updateGuide(goal, dist, ang, distText) {
+  const el = $("guide");
+  const arrow = $("guide-arrow");
+  const label = $("guide-dist");
+  if (!state || mode !== "playing" || dist < 14) {
+    el.hidden = true;
+    return;
+  }
+  const projected = renderer.project(goal.x, worldGround(goal.x, goal.z) + 2.4, goal.z);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const marginX = 28 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sal")) || 0);
+  const marginY = 120 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0);
+  const bottom = 160 + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sab")) || 0);
+  let onScreen = false;
+  let px = w / 2;
+  let py = h / 2;
+  if (projected) {
+    px = projected.x;
+    py = projected.y;
+    onScreen = px > marginX && px < w - marginX && py > marginY && py < h - bottom;
+  }
+  if (onScreen && dist < 55) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  if (!onScreen) {
+    const halfW = w / 2 - marginX;
+    const halfH = (h - marginY - bottom) / 2;
+    const fx = Math.sin(ang);
+    const fy = -Math.cos(ang);
+    const sx = fx === 0 ? Infinity : halfW / Math.abs(fx);
+    const sy = fy === 0 ? Infinity : halfH / Math.abs(fy);
+    const t = Math.min(sx, sy);
+    px = w / 2 + fx * t;
+    py = marginY + (h - marginY - bottom) / 2 + fy * t;
+  }
+  el.style.transform = `translate(${px}px, ${py}px)`;
+  arrow.style.transform = `translate(-50%, -70%) rotate(${ang}rad)`;
+  label.textContent = `${bearingLabel(ang)} · ${distText}`;
+  label.style.transform = onScreen ? "translate(-50%, 22px)" : "translate(-50%, 28px)";
+}
+
+function activeGoal() {
+  if (race) {
+    const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
+    return { title: "街頭賽進行中", detail: `對手 ${Math.min(99, Math.round(race.opp * 100))}%`, x: p.x, z: p.z };
+  }
+  if (state.job) {
+    return {
+      title: state.job.type === "crate" ? "把鳳梨酥箱送到" : "外送倒數",
+      detail: `剩下 ${Math.ceil(state.job.left)} 秒`,
+      x: state.job.x,
+      z: state.job.z,
+    };
+  }
+  const g = goalFor(state);
+  if (state.chapter === "under_tag") {
+    const wall = g;
+    return wall;
+  }
+  return g;
+}
+
+function syncTouch() {
+  const coarse = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 900;
+  const on = board.showTouch === "on" || (board.showTouch !== "off" && coarse);
+  document.body.classList.toggle("playing", mode === "playing" || mode === "dialog" || mode === "mini");
+  document.body.classList.toggle("show-touch", on && (mode === "playing" || mode === "dialog" || mode === "mini"));
+}
+
+function render() {
+  const envBase = skyEnvironment(mode === "title" ? titleTime : (state ? state.time : titleTime));
+  const env = { ...envBase, sunDir: envBase.sunDir.slice(), ambient: envBase.ambient.slice() };
+  if (state?.inside) {
+    env.ambient = [0.55, 0.5, 0.42];
+    env.fogDensity = 0.012;
+    env.night = Math.min(env.night, 0.25);
+  }
+  layoutCamera();
+  renderer.begin(camera, env);
+  prepareFrame();
+  if (!state || !state.inside) {
+    const cx = camera.eye[0];
+    const cz = camera.eye[2];
+    for (const piece of world.big) {
+      if (!renderer.visible(piece.min, piece.max)) continue;
+      renderer.draw(piece.mesh, IDENT);
+    }
+    for (const chunk of world.chunks) {
+      const mx = (chunk.min[0] + chunk.max[0]) / 2;
+      const mz = (chunk.min[2] + chunk.max[2]) / 2;
+      const d = dist2(cx, cz, mx, mz);
+      if (d > 230 * 230) continue;
+      if (!renderer.visible(chunk.min, chunk.max)) continue;
+      renderer.draw(d > 95 * 95 ? chunk.lod : chunk.mesh, IDENT);
+    }
+    for (const water of world.water) {
+      if (!renderer.visible(water.min, water.max)) continue;
+      renderer.drawWater(water.mesh, (state ? state.time : titleTime) * 0.02);
+    }
+    if (state && mode !== "title") drawActors();
+    else drawActorsTitle();
+  } else {
+    const room = world.interiors[state.inside];
+    renderer.draw(room.mesh, IDENT);
+    drawPerson(renderer, lib, state.x, state.y, state.z, state.yaw, walkPhase, gameSpeed > 0.2, [0.2, 0.55, 0.85], false);
+  }
+  if (state && mode !== "title") projectUi();
+}
+
+function layoutCamera() {
+  if (mode === "title" || !state) {
+    const ang = titleTime * 0.01;
+    const eye = [Math.sin(ang) * 26, 12, 176 + Math.cos(ang) * 18];
+    const target = [0, 6, 176];
+    setCamera(eye, target, 52 * DEG);
+    return;
+  }
+  const dist = state.inside ? 5.2 : state.riding === "car" ? 11 : state.riding ? 8.2 : 6.4;
+  const height = state.inside ? 2.4 : state.riding ? 4.1 : 3.05;
+  let eyeX = state.x - Math.sin(camYaw) * dist;
+  let eyeZ = state.z - Math.cos(camYaw) * dist;
+  const eyeY = state.y + height + Math.sin(blink * 30) * shake;
+  const grid = state.inside ? world.interiorGrids[state.inside] : world.grid;
+  for (let i = 8; i >= 1; i--) {
+    const t = i / 8;
+    const x = state.x + (eyeX - state.x) * t;
+    const z = state.z + (eyeZ - state.z) * t;
+    if (!pointBlocked(grid, x, z, 0.35)) {
+      eyeX = x;
+      eyeZ = z;
+      break;
+    }
+  }
+  setCamera([eyeX, eyeY, eyeZ], [state.x, state.y + 1.25, state.z], (state.riding ? 64 : 58) * DEG);
+}
+
+function setCamera(eye, target, fov) {
+  camera.eye = eye;
+  camera.target = target;
+  camera.fov = fov;
+  const fx = target[0] - eye[0];
+  const fy = target[1] - eye[1];
+  const fz = target[2] - eye[2];
+  const fl = Math.hypot(fx, fy, fz) || 1;
+  camera.forward = [fx / fl, fy / fl, fz / fl];
+  const rx = camera.forward[2];
+  const rz = -camera.forward[0];
+  const rl = Math.hypot(rx, rz) || 1;
+  camera.right = [rx / rl, 0, rz / rl];
+  const ux = camera.right[1] * camera.forward[2] - camera.right[2] * camera.forward[1];
+  const uy = camera.right[2] * camera.forward[0] - camera.right[0] * camera.forward[2];
+  const uz = camera.right[0] * camera.forward[1] - camera.right[1] * camera.forward[0];
+  camera.up = [ux, uy, uz];
+}
+
+function drawActors() {
+  const px = state.x;
+  const pz = state.z;
+  for (const v of world.parked) {
+    if (dist2(px, pz, v.x, v.z) > 120 * 120) continue;
+    const y = worldGround(v.x, v.z);
+    if (v.type === "car") drawCar(renderer, lib, v.x, y, v.z, v.yaw, 0, v.tint, false, 0);
+    else drawScooter(renderer, lib, v.x, y, v.z, v.yaw, 0, 0, v.tint);
+  }
+  for (const v of sim.traffic) {
+    if (dist2(px, pz, v.x, v.z) > 140 * 140) continue;
+    const y = worldGround(v.x, v.z);
+    if (v.type === "car") drawCar(renderer, lib, v.x, y, v.z, v.yaw, v.phase, v.tint, false, 0);
+    else drawScooter(renderer, lib, v.x, y, v.z, v.yaw, 0, v.phase, v.tint);
+  }
+  for (const ped of sim.peds) {
+    if (dist2(px, pz, ped.x, ped.z) > 80 * 80) continue;
+    const y = worldGround(ped.x, ped.z);
+    if (dist2(px, pz, ped.x, ped.z) > 28 * 28) drawProp(renderer, lib.person, ped.x, y, ped.z, ped.yaw, 1, ped.tint);
+    else drawPerson(renderer, lib, ped.x, y, ped.z, ped.yaw, ped.phase, ped.speed > 0.2, ped.tint, false);
+  }
+  for (const npc of world.npcs) {
+    if (dist2(px, pz, npc.x, npc.z) > 90 * 90) continue;
+    drawPerson(renderer, lib, npc.x, worldGround(npc.x, npc.z), npc.z, Math.atan2(px - npc.x, pz - npc.z), blink, false, npc.tint, false);
+  }
+  for (const cop of sim.police) {
+    const y = worldGround(cop.x, cop.z);
+    if (cop.kind === "foot") drawPerson(renderer, lib, cop.x, y, cop.z, cop.yaw, cop.phase, true, cop.tint, true);
+    else if (cop.kind === "car") drawCar(renderer, lib, cop.x, y, cop.z, cop.yaw, cop.phase, [1, 1, 1], true, Math.sin(blink * 12));
+    else drawScooter(renderer, lib, cop.x, y, cop.z, cop.yaw, 0, cop.phase, [0.9, 0.92, 0.96]);
+  }
+  for (const block of sim.roadblocks) {
+    drawCar(renderer, lib, block.x, worldGround(block.x, block.z), block.z, block.yaw, 0, [1, 1, 1], true, Math.sin(blink * 12));
+  }
+  if (sim.heli) drawHeli(renderer, lib, sim.heli.x, sim.heli.y, sim.heli.z, sim.heli.yaw, sim.heli.spin);
+  if (festivalState(state.time).parade && state.z > -220) {
+    drawProp(renderer, lib.boat, 0, worldGround(0, sim.paradeZ), sim.paradeZ, 0, 1, null);
+  }
+  if (state.riding === "car") drawCar(renderer, lib, state.x, state.y, state.z, state.yaw, wheelSpin, state.vehicleTint || [0.2, 0.4, 0.8], false, 0);
+    else if (state.riding === "scooter") {
+    drawScooter(renderer, lib, state.x, state.y, state.z, state.yaw, lean, wheelSpin, state.vehicleTint || [0.82, 0.16, 0.14]);
+    drawPerson(renderer, lib, state.x, state.y + 0.62, state.z, state.yaw, 0, false, [0.2, 0.55, 0.85], false);
+  } else drawPerson(renderer, lib, state.x, state.y, state.z, state.yaw, walkPhase, gameSpeed > 0.2, [0.2, 0.55, 0.85], false);
+  if (state.job?.type === "crate" || (state.chapter || "").startsWith("under_crate")) {
+    if (state.job?.type === "crate") drawProp(renderer, lib.crate, state.x, state.y + 1.1, state.z, state.yaw, 1, null);
+  }
+  const goal = activeGoal();
+  const gDist = dist2(state.x, state.z, goal.x, goal.z);
+  if (gDist < 260 * 260) {
+    const gy = worldGround(goal.x, goal.z) + 2.6 + Math.sin(blink * 4) * 0.35;
+    const face = Math.atan2(state.x - goal.x, state.z - goal.z);
+    drawProp(renderer, lib.chevron, goal.x, gy, goal.z, face, 1.55, null);
+    drawProp(renderer, lib.sphere, goal.x, gy + 1.35, goal.z, 0, 0.55 + Math.sin(blink * 6) * 0.08, [1, 0.78, 0.2]);
+  }
+  if (race) {
+    const p = RACE_POINTS[Math.min(race.i, RACE_POINTS.length - 1)];
+    drawProp(renderer, lib.arch, p.x, worldGround(p.x, p.z), p.z, 0, 1, null);
+  }
+}
+
+function drawActorsTitle() {
+  drawPerson(renderer, lib, 6, 0, 160, 2.4, blink, false, [0.8, 0.3, 0.25], false);
+  drawScooter(renderer, lib, -6, 0, 158, 0.4, 0, blink, [0.8, 0.16, 0.14]);
+}
+
+function projectUi() {
+  const spots = [];
+  for (const label of world.labels) {
+    if (dist2(state.x, state.z, label.x, label.z) < 85 * 85) spots.push(label);
+  }
+  for (const npc of world.npcs) {
+    if (dist2(state.x, state.z, npc.x, npc.z) < 16 * 16) spots.push({ text: npc.name, x: npc.x, y: 2.3, z: npc.z });
+  }
+  placeLayer($("labels"), "world-label", spots);
+  const barks = sim.barks.map((b) => ({ text: b.text, x: b.x, y: b.y, z: b.z }));
+  placeLayer($("bubbles"), "bark", barks);
+}
+function placeLayer(root, className, list) {
+  while (root.children.length < list.length) {
+    const el = document.createElement("div");
+    el.className = className;
+    root.appendChild(el);
+  }
+  for (let i = 0; i < root.children.length; i++) {
+    const el = root.children[i];
+    const item = list[i];
+    if (!item) { el.hidden = true; continue; }
+    const p = renderer.project(item.x, item.y, item.z);
+    if (!p) { el.hidden = true; continue; }
+    el.hidden = false;
+    el.textContent = item.text;
+    el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -120%)`;
+  }
+}
+
+function drawMinimap() {
+  const c = $("minimap");
+  const ctx = c.getContext("2d");
+  const w = c.width;
+  const h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, w / 2 - 2, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "#17202b";
+  ctx.fillRect(0, 0, w, h);
+  if (state.inside) {
+    ctx.fillStyle = "#f6f1e7";
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(state.inside === "jail" ? "派出所" : state.inside === "shop" ? "店內" : "家裡", w / 2, h / 2);
+    ctx.restore();
+    return;
+  }
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(-state.yaw);
+  const scale = 1.15;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#5c6b7d";
+  for (const s of world.roadSegs) {
+    const mx = (s.x0 + s.x1) / 2;
+    const mz = (s.z0 + s.z1) / 2;
+    if (dist2(state.x, state.z, mx, mz) > 170 * 170) continue;
+    ctx.beginPath();
+    ctx.moveTo((s.x0 - state.x) * scale, -(s.z0 - state.z) * scale);
+    ctx.lineTo((s.x1 - state.x) * scale, -(s.z1 - state.z) * scale);
+    ctx.stroke();
+  }
+  const goal = activeGoal();
+  ctx.fillStyle = "#ffb703";
+  ctx.fillRect((goal.x - state.x) * scale - 3, -(goal.z - state.z) * scale - 3, 6, 6);
+  if (state.wanted > 0) {
+    ctx.fillStyle = "#ff5a5a";
+    for (const cop of sim.police) ctx.fillRect((cop.x - state.x) * scale - 2, -(cop.z - state.z) * scale - 2, 4, 4);
+  }
+  ctx.restore();
+  ctx.fillStyle = "#fff6df";
+  ctx.beginPath();
+  ctx.moveTo(w / 2, h / 2 - 8);
+  ctx.lineTo(w / 2 - 6, h / 2 + 7);
+  ctx.lineTo(w / 2 + 6, h / 2 + 7);
+  ctx.fill();
+}
+
+function drawBigMap() {
+  const c = $("map-canvas");
+  const ctx = c.getContext("2d");
+  const w = c.width;
+  const h = c.height;
+  const region = mapRegion === "kenting"
+    ? { minX: -80, maxX: 140, minZ: -1100, maxZ: -820, name: "墾丁" }
+    : { minX: -180, maxX: 180, minZ: -180, maxZ: 210, name: "屏東市" };
+  ctx.fillStyle = "#14202b";
+  ctx.fillRect(0, 0, w, h);
+  const sx = w / (region.maxX - region.minX);
+  const sy = h / (region.maxZ - region.minZ);
+  const scale = Math.min(sx, sy) * 0.92;
+  const ox = w / 2 - ((region.minX + region.maxX) / 2) * scale;
+  const oy = h / 2 + ((region.minZ + region.maxZ) / 2) * scale;
+  const X = (x) => ox + x * scale;
+  const Y = (z) => oy - z * scale;
+  ctx.strokeStyle = "#6d7d90";
+  ctx.lineWidth = 4;
+  for (const s of world.roadSegs) {
+    if (s.x0 < region.minX - 20 && s.x1 < region.minX - 20) continue;
+    ctx.beginPath();
+    ctx.moveTo(X(s.x0), Y(s.z0));
+    ctx.lineTo(X(s.x1), Y(s.z1));
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#ffb703";
+  ctx.font = "20px sans-serif";
+  for (const label of world.labels) {
+    if (label.x < region.minX || label.x > region.maxX || label.z < region.minZ || label.z > region.maxZ) continue;
+    ctx.fillText(label.text, X(label.x) + 4, Y(label.z));
+  }
+  const goal = activeGoal();
+  ctx.fillStyle = "#7dffa8";
+  ctx.fillRect(X(goal.x) - 4, Y(goal.z) - 4, 8, 8);
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(X(state.x), Y(state.z), 6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+boot();
