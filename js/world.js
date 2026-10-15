@@ -1,4 +1,5 @@
 import { ColliderGrid, MeshBuilder, hex, mulberry32, pointBlocked } from "./engine.js";
+import { buildCityGround, buildCityRoads, buildParkGround, createBuildingKit, PARK_POND, pickSceneDetail } from "./models-buildings.js";
 
 export const XS = [-150, -100, -50, 0, 50, 100, 150];
 export const ZS = [-150, -100, -50, 0, 50, 100, 150];
@@ -160,6 +161,9 @@ export function createWorld(renderer) {
     d.lo.prismRoof(x, y, z, sx, sy, sz, color, 0, 0);
   }
 
+  const sceneDetail = pickSceneDetail();
+  const kit = createBuildingKit({ getDual, detail: sceneDetail });
+
   function collider(x, z, w, d, face, porch) {
     let minX = x - w / 2, maxX = x + w / 2, minZ = z - d / 2, maxZ = z + d / 2;
     if (porch) {
@@ -198,148 +202,33 @@ export function createWorld(renderer) {
     return face;
   }
 
-  function windowBand(x, y, z, w, d, face) {
-    const t = 0.08;
-    if (face === "z+") put(x, y, z + d / 2 + 0.06, w * 0.7, 1.05, t, WINDOW, 1, false);
-    else if (face === "z-") put(x, y, z - d / 2 - 0.06, w * 0.7, 1.05, t, WINDOW, 1, false);
-    else if (face === "x+") put(x + w / 2 + 0.06, y, z, t, 1.05, d * 0.7, WINDOW, 1, false);
-    else put(x - w / 2 - 0.06, y, z, t, 1.05, d * 0.7, WINDOW, 1, false);
-  }
-
-  function decorateFace(x, z, w, d, floors, face, accent, y0 = 0) {
-    const span = face.startsWith("z") ? w : d;
-    const cols = Math.max(2, Math.min(4, Math.round(span / 3.6)));
-    const fh = 3.15;
-    const h = floors * fh;
-    const along = (u) => (u + 0.5) / cols - 0.5;
-    if (face === "z+" || face === "z-") {
-      const zz = face === "z+" ? z + d / 2 + 0.08 : z - d / 2 - 0.08;
-      put(x, y0 + h * 0.46, zz, span * 0.9, h * 0.7, 0.1, accent, 0, false);
-    } else {
-      const xx = face === "x+" ? x + w / 2 + 0.08 : x - w / 2 - 0.08;
-      put(xx, y0 + h * 0.46, z, 0.1, h * 0.7, span * 0.9, accent, 0, false);
-    }
-    for (let f = 0; f < floors; f++) {
-      const wy = y0 + f * fh + 1.65;
-      for (let c = 0; c < cols; c++) {
-        const u = along(c) * span * 0.76;
-        if (face === "z+" || face === "z-") {
-          const zz = face === "z+" ? z + d / 2 + 0.16 : z - d / 2 - 0.16;
-          put(x + u, wy, zz, 0.72, 1.05, 0.08, WINDOW, 1, false);
-        } else {
-          const xx = face === "x+" ? x + w / 2 + 0.16 : x - w / 2 - 0.16;
-          put(xx, wy, z + u, 0.08, 1.05, 0.72, WINDOW, 1, false);
-        }
-      }
-    }
-    const sign = AWNING[Math.floor(rng() * AWNING.length)];
-    const sw = Math.min(4.4, span * 0.5);
-    if (face === "z+") put(x, y0 + 2.35, z + d / 2 + 0.24, sw, 0.72, 0.12, sign, 0, false);
-    else if (face === "z-") put(x, y0 + 2.35, z - d / 2 - 0.24, sw, 0.72, 0.12, sign, 0, false);
-    else if (face === "x+") put(x + w / 2 + 0.24, y0 + 2.35, z, 0.12, 0.72, sw, sign, 0, false);
-    else put(x - w / 2 - 0.24, y0 + 2.35, z, 0.12, 0.72, sw, sign, 0, false);
-  }
-
   function addBuilding(x, z, w, d, floors, style, wall, face) {
-    const fh = 3.15;
-    const accent = style === "wood" ? hex(0xf0d7b4) : [hex(0xf7efe2), hex(0xe7d3c4), hex(0xd7e4ea), hex(0xf3e0c4)][Math.floor(rng() * 4)];
-    const side = face === "z+" || face === "z-" ? "x+" : "z+";
-    if (style === "shop") {
-      const posts = [
-        [x - w / 2 + 0.28, z - d / 2 + 0.28],
-        [x + w / 2 - 0.28, z - d / 2 + 0.28],
-        [x - w / 2 + 0.28, z + d / 2 - 0.28],
-        [x + w / 2 - 0.28, z + d / 2 - 0.28],
-      ];
-      for (const [px, pz] of posts) put(px, 1.5, pz, 0.36, 3, 0.36, wall, 0, true);
-      const uh = Math.max(fh, (floors - 1) * fh);
-      put(x, 3.1 + uh / 2, z, w, uh, d, wall, 0, true);
-      decorateFace(x, z, w, d, Math.max(1, floors - 1), face, accent, 3.1);
-      const color = AWNING[Math.floor(rng() * AWNING.length)];
-      if (face === "z+") put(x, 3.15, z + d / 2 + 0.55, w * 0.9, 0.12, 1.1, color, 0, false);
-      else if (face === "z-") put(x, 3.15, z - d / 2 - 0.55, w * 0.9, 0.12, 1.1, color, 0, false);
-      else if (face === "x+") put(x + w / 2 + 0.55, 3.15, z, 1.1, 0.12, d * 0.9, color, 0, false);
-      else put(x - w / 2 - 0.55, 3.15, z, 1.1, 0.12, d * 0.9, color, 0, false);
-      put(x + w * 0.2, 3.1 + uh + 0.45, z, 1.1, 0.7, 1.1, CONCRETE, 0, false);
-      collider(x, z, w, d, face, true);
-    } else if (style === "wood") {
-      put(x, 1.6, z, w, 3.2, d, wall, 0, true);
-      putRoof(x, 3.2, z, w + 0.6, 1.3, d + 0.6, ROOF);
-      decorateFace(x, z, w, d, 1, face, accent, 0);
-      put(x, 0.7, z, w + 0.2, 0.35, 0.2, WOOD_DARK, 0, false);
-      collider(x, z, w * 0.92, d * 0.92, face, false);
-    } else {
-      const h = floors * fh;
-      put(x, h / 2, z, w, h, d, wall, 0, true);
-      decorateFace(x, z, w, d, floors, face, accent, 0);
-      if (w > 8 && d > 8) decorateFace(x, z, w, d, floors, side, hex(0xd9c7b2), 0);
-      put(x, h + 0.45, z - d * 0.15, 1.4, 0.9, 1.4, hex(0xb9c0c8), 0, false);
-      put(x + w * 0.28, h + 0.35, z + d * 0.2, 0.7, 0.7, 0.7, hex(0x9aa3ad), 0, false);
-      collider(x, z, w, d, face, false);
-    }
+    // 原本立面在這裡消耗的隨機數要留著，後面的樓層高度才不會整城重洗。
+    rng();
+    rng();
+    if (style === "shop" || (style !== "wood" && w > 8 && d > 8)) rng();
+    kit.building(x, z, w, d, floors, style, wall, face);
+    if (style === "shop") collider(x, z, w, d, face, true);
+    else if (style === "wood") collider(x, z, w * 0.92, d * 0.92, face, false);
+    else collider(x, z, w, d, face, false);
   }
 
   function addTree(x, z, scale, palm) {
-    const h = (palm ? 4.2 : 2.4) * scale;
-    put(x, h / 2, z, 0.28 * scale, h, 0.28 * scale, TRUNK, 0, true);
-    const d = getDual(x, z);
-    if (palm) {
-      d.lo.cone(x, h, z, 1.1 * scale, 1.6 * scale, 6, PALM, 0, 0);
-      for (let i = 0; i < 5; i++) {
-        const yaw = (i / 5) * Math.PI * 2;
-        putRot(x, h + 0.2, z, 0.18, 0.08, 1.5 * scale, yaw, 0.7, PALM, 0);
-      }
-    } else {
-      d.hi.sphere(x, h + 0.8 * scale, z, 1.15 * scale, 6, LEAF, 0, 0);
-      d.hi.sphere(x + 0.4 * scale, h + 0.5 * scale, z + 0.2, 0.8 * scale, 6, hex(0x4ea056), 0, 0);
-      d.lo.cone(x, h + 0.4, z, 1.2 * scale, 2.2 * scale, 6, LEAF, 0, 0);
-    }
+    kit.tree(x, z, scale, palm ? "palm" : "shade");
   }
 
   function addLamp(x, z) {
-    put(x, 1.7, z, 0.12, 3.4, 0.12, DARK, 0, true);
-    put(x, 3.45, z, 0.55, 0.12, 0.28, DARK, 0, true);
-    put(x, 3.32, z, 0.28, 0.1, 0.16, WINDOW, 2, true);
+    kit.lamp(x, z);
   }
 
   const cityGround = new MeshBuilder();
-  cityGround.box(0, -0.25, 0, 460, 0.5, 460, GROUND, 0, 0);
+  buildCityGround(cityGround, sceneDetail);
   const park = new MeshBuilder();
-  park.box(102, 0.02, 52, 96, 0.08, 90, GRASS, 0, 0);
-  park.box(70, 0.03, 50, 8, 0.05, 70, hex(0xe4dcc8), 0, 0);
-  park.box(102, 0.03, 20, 70, 0.05, 8, hex(0xe4dcc8), 0, 0);
-
+  buildParkGround(park);
   const cityRoads = new MeshBuilder();
-  function roadBox(x, y, z, sx, sy, sz, color) {
-    cityRoads.box(x, y, z, sx, sy, sz, color, 0, 0);
-  }
-  const CURB = hex(0xc4b8a6);
-  for (const x of XS) {
-    roadBox(x, 0.08, 0, 12, 0.14, 312, ROAD);
-    roadSegs.push({ x0: x, z0: -156, x1: x, z1: 156 });
-    for (let i = 0; i < ZS.length - 1; i++) {
-      const z0 = ZS[i] + 9;
-      const z1 = ZS[i + 1] - 9;
-      const mid = (z0 + z1) / 2;
-      const len = Math.max(4, z1 - z0);
-      roadBox(x - 5.55, 0.1, mid, 0.42, 0.1, len, CURB);
-      roadBox(x + 5.55, 0.1, mid, 0.42, 0.1, len, CURB);
-      for (let z = z0 + 6; z < z1 - 4; z += 28) roadBox(x, 0.16, z, 0.46, 0.04, 5.5, LINE);
-    }
-  }
-  for (let i = 0; i < ZS.length; i++) {
-    const z = ZS[i];
-    roadSegs.push({ x0: -156, z0: z, x1: 156, z1: z });
-    for (let k = 0; k < XS.length - 1; k++) {
-      const x0 = XS[k] + 8;
-      const x1 = XS[k + 1] - 8;
-      const mid = (x0 + x1) / 2;
-      roadBox(mid, 0.08, z, x1 - x0, 0.14, 12, ROAD);
-      roadBox(mid, 0.1, z - 5.55, Math.max(2, x1 - x0), 0.1, 0.42, CURB);
-      roadBox(mid, 0.1, z + 5.55, Math.max(2, x1 - x0), 0.1, 0.42, CURB);
-      for (let x = x0 + 6; x < x1 - 4; x += 28) roadBox(x, 0.16, z, 5.5, 0.04, 0.46, LINE);
-    }
-  }
+  buildCityRoads(cityRoads, XS, ZS, sceneDetail);
+  for (const x of XS) roadSegs.push({ x0: x, z0: -156, x1: x, z1: 156 });
+  for (const z of ZS) roadSegs.push({ x0: -156, z0: z, x1: 156, z1: z });
 
   for (const x of XS) {
     for (let z = -150; z <= 150; z += 26) addLamp(x + 8, z);
@@ -373,53 +262,20 @@ export function createWorld(renderer) {
     }
   }
 
-  // 屏東車站
-  put(0, 5, 176, 78, 10, 16, CREAM, 0, true);
-  put(0, 10.4, 176, 80, 1.1, 18, hex(0x8e3428), 0, true);
-  put(-30, 9, 176, 8, 18, 8, CREAM, 0, true);
-  put(-30, 18.4, 176, 9, 1.2, 9, hex(0x8e3428), 0, true);
-  put(-30, 14.5, 180.2, 3.2, 3.2, 0.2, WHITE, 0, false);
-  put(-30, 14.5, 180.3, 0.12, 1.2, 0.08, DARK, 0, false);
-  for (let i = -3; i <= 3; i++) windowBand(i * 10, 6.2, 176, 9, 16, "z-");
-  put(0, 0.4, 164, 70, 0.3, 16, CONCRETE, 0, true);
-  put(0, 0.15, 198, 90, 0.2, 10, hex(0x4a463f), 0, true);
-  put(-2.2, 0.35, 198, 0.16, 0.12, 86, hex(0xb7b1a6), 0, true);
-  put(2.2, 0.35, 198, 0.16, 0.12, 86, hex(0xb7b1a6), 0, true);
-  put(0, 2.2, 194, 42, 3.4, 8, hex(0xd7dde6), 0, true);
-  for (let i = -2; i <= 2; i++) put(i * 8, 2.3, 190.2, 5, 1.6, 0.12, GLASS, 1, false);
-  put(0, 8.6, 167.7, 26, 2.4, 0.45, hex(0xc23b3b), 0, false);
-  put(0, 8.6, 167.4, 20, 1.15, 0.12, hex(0xfff6df), 0, false);
-  put(-30, 16.2, 171.6, 2.4, 2.4, 0.25, hex(0x1f4e9a), 0, false);
-  put(-30, 16.2, 171.42, 0.12, 2.1, 0.08, hex(0xfff6df), 0, false);
-  put(-30, 16.2, 171.42, 1.9, 0.12, 0.08, hex(0xfff6df), 0, false);
+  // 屏東車站。碰撞框維持原本足跡，模型見 models-buildings.js 的 station()。
+  kit.station();
   collider(0, 176, 78, 16, "z-", false);
   collider(0, 194, 42, 8, "z-", false);
   labels.push({ text: "屏東車站", x: 0, y: 20, z: 176 });
 
   // 太平洋百貨
-  put(-25, 9.6, -25, 32, 19.2, 26, hex(0xdfe7ef), 0, true);
-  for (let f = 0; f < 6; f++) {
-    put(-25, 2.2 + f * 3.2, -11.9, 28, 1.5, 0.25, GLASS, f > 0 ? 1 : 0, false);
-    put(-8.9, 2.2 + f * 3.2, -25, 0.25, 1.5, 22, GLASS, f > 0 ? 1 : 0, false);
-  }
-  put(-25, 19.8, -25, 24, 1.2, 8, hex(0xc23b3b), 0, true);
-  put(-25, 1.2, -11.2, 14, 0.35, 3.2, hex(0xf0d48a), 0, false);
+  kit.department();
   collider(-25, -25, 32, 26, "z+", false);
   labels.push({ text: "太平洋百貨", x: -25, y: 23, z: -25 });
 
-  // 千禧公園
-  {
-    const d = getDual(100, 48);
-    d.hi.disc(104, 0.08, 58, 14, 18, hex(0x3aa0c8), 0, 0);
-    d.lo.disc(104, 0.08, 58, 14, 10, hex(0x3aa0c8), 0, 0);
-  }
-  put(104, 0.2, 58, 8, 0.3, 8, hex(0xbfc6c0), 0, true);
-  put(100, 1.6, 28, 0.3, 3.2, 0.3, WHITE, 0, true);
-  put(108, 1.6, 28, 0.3, 3.2, 0.3, WHITE, 0, true);
-  put(104, 3.3, 28, 8.4, 0.3, 6, hex(0xd24b4b), 0, true);
-  for (let i = 0; i < 10; i++) addTree(64 + (i % 5) * 16, 16 + Math.floor(i / 5) * 58, 1.05, false);
-  addTree(128, 78, 1.4, false);
-  labels.push({ text: "千禧公園", x: 104, y: 8, z: 48 });
+  // 千禧公園。水池位置跟 pondMesh、PARK_POND 對齊，避開穿越公園的道路。
+  kit.park();
+  labels.push({ text: "千禧公園", x: PARK_POND.x, y: 8, z: PARK_POND.z });
 
   // 勝利星村
   const houseSpots = [
@@ -431,22 +287,17 @@ export function createWorld(renderer) {
     addBuilding(x, z, 8 + (i % 3), 7, 1, "wood", wall, "z+");
     if (i % 2 === 0) addTree(x + 6, z + 4, 0.9, false);
   });
-  put(-100, 0.5, -100, 18, 0.8, 0.4, BRICK, 0, true);
-  put(-100, 2.2, -100, 0.15, 2.6, 0.15, WOOD_DARK, 0, true);
-  for (let i = -2; i <= 2; i++) put(-100 + i * 1.2, 3.3, -100, 0.18, 0.18, 0.18, WINDOW, 2, false);
+  kit.starVillage();
   labels.push({ text: "勝利星村", x: -100, y: 7, z: -100 });
 
   // 屏東夜市：北口空地放阿霞，兩排攤位中間留一條南北都能走的缺口。
   const stallX = [62, 71, 93, 102, 111, 120, 129];
   const stallZ = [-22, -34];
-  for (const x of stallX) {
-    for (const z of stallZ) {
-      const color = AWNING[(Math.abs(x + z) / 3 | 0) % AWNING.length];
-      put(x, 0.48, z, 2.6, 0.9, 1.35, hex(0x6b4a32), 0, true);
-      put(x - 1.15, 1.15, z - 0.5, 0.1, 2.1, 0.1, DARK, 0, false);
-      put(x + 1.15, 1.15, z + 0.5, 0.1, 2.1, 0.1, DARK, 0, false);
-      put(x, 2.15, z, 3.15, 0.1, 2.05, color, 0, false);
-      put(x, 2.4, z, 1.5, 0.38, 0.1, hex(0xfff6df), 0, false);
+  for (const z of stallZ) {
+    for (let i = 0; i < stallX.length; i++) {
+      const x = stallX[i];
+      kit.stall(x, z);
+      if (i > 0 && x - stallX[i - 1] < 12) kit.stallWire(stallX[i - 1], x, z);
       colliders.push({ minX: x - 1.15, maxX: x + 1.15, minZ: z - 0.55, maxZ: z + 0.55 });
     }
   }
@@ -454,17 +305,12 @@ export function createWorld(renderer) {
 
   const carts = [[8, 28, 0], [-8, -28, 1], [108, 24, 2], [8, -36, 3], [-108, 40, 4]];
   carts.forEach(([x, z, i]) => {
-    put(x, 0.45, z, 1.15, 0.7, 0.75, hex(0x6b4a32), 0, true);
-    put(x, 1.15, z, 0.08, 1.5, 0.08, DARK, 0, true);
-    put(x, 1.85, z, 1.7, 0.08, 1.7, AWNING[i % AWNING.length], 0, false);
+    kit.cart(x, z, i);
     colliders.push({ minX: x - 0.7, maxX: x + 0.7, minZ: z - 0.5, maxZ: z + 0.5 });
   });
 
   // 派出所
-  put(-28, 4.8, 74, 20, 9.6, 14, WHITE, 0, true);
-  put(-28, 3.2, 67.1, 20.2, 1.2, 0.3, BLUE, 0, true);
-  put(-28, 1.5, 66.4, 8, 0.2, 2.4, BLUE, 0, false);
-  put(-36, 3.5, 66, 0.12, 7, 0.12, DARK, 0, true);
+  kit.police();
   collider(-28, 74, 20, 14, "z-", false);
   labels.push({ text: "屏東派出所", x: -28, y: 12, z: 74 });
 
@@ -473,18 +319,12 @@ export function createWorld(renderer) {
   labels.push({ text: "租屋處", x: 25, y: 16, z: 126 });
 
   // 小廟
-  put(-112, 2.2, 28, 12, 4.4, 10, BRICK, 0, true);
-  putRoof(-112, 4.4, 28, 13, 2.2, 11, hex(0x8e3428));
-  put(-112, 1.6, 33.4, 0.4, 3.2, 0.4, hex(0xf2d48a), 0, true);
-  put(-108, 1.6, 33.4, 0.4, 3.2, 0.4, hex(0xf2d48a), 0, true);
-  put(-116, 1.6, 33.4, 0.4, 3.2, 0.4, hex(0xf2d48a), 0, true);
+  kit.temple();
   collider(-112, 28, 12, 10, "z+", false);
   labels.push({ text: "城隍小廟", x: -112, y: 8, z: 28 });
 
-  // 超商
-  put(-22, 2, 132, 12, 4, 8, CREAM, 0, true);
-  put(-22, 3.4, 127.6, 10, 0.2, 1.6, hex(0x2f9e6b), 0, false);
-  windowBand(-22, 2.2, 132, 12, 8, "z-");
+  // 超商。騎樓切口仍是 collider 的 porch，玩家走得到櫃台。
+  kit.convenience();
   collider(-22, 132, 12, 8, "z-", true);
   labels.push({ text: "屏東超商", x: -22, y: 6, z: 132 });
 
@@ -515,7 +355,7 @@ export function createWorld(renderer) {
     }
   }
   ribbon(highway, hw, 7, 0.08, ROAD);
-  ribbon(highway, hw, 0.12, 0.14, LINE);
+  ribbon(highway, hw, 0.12, 0.22, LINE);
   for (let i = 1; i < hw.length; i += 2) {
     roadSegs.push({ x0: hw[i - 1].x, z0: hw[i - 1].z, x1: hw[i].x, z1: hw[i].z });
     if (i % 4 === 0) {
@@ -571,8 +411,7 @@ export function createWorld(renderer) {
   addBuilding(-22, -940, 16, 12, 3, "walkup", hex(0xf7e6c8), "x+");
   addBuilding(-24, -980, 14, 12, 2, "shop", CREAM, "x+");
   addBuilding(-18, -1020, 18, 12, 4, "walkup", hex(0xf3d2a4), "z+");
-  put(20, 1.1, -968, 8, 2.2, 4, hex(0xf0b429), 0, true);
-  putRot(20, 2.4, -968, 9, 0.12, 5, 0, -0.2, hex(0xd64545), 0);
+  kit.tunaStand();
   for (let i = 0; i < 8; i++) addTree(36 + (i % 4) * 8, -930 - Math.floor(i / 4) * 40, 1.15, true);
   put(8, 2.4, -900, 0.3, 4.8, 0.3, WHITE, 0, true);
   put(8, 5, -900, 4.5, 1.4, 0.2, hex(0x1f4e9a), 0, true);
@@ -713,7 +552,7 @@ export function createWorld(renderer) {
 
   function pondMesh() {
     const b = new MeshBuilder();
-    b.disc(104, 0.12, 58, 13.2, 16, WATER, 0, 0);
+    b.disc(PARK_POND.x, 0.11, PARK_POND.z, PARK_POND.r - 0.15, 16, WATER, 0, 0);
     return b;
   }
 }
