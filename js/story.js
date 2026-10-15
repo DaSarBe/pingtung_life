@@ -128,6 +128,13 @@ export function interactItem(game, item) {
   if (item.id === "shop-counter") {
     game.openActivity("shop", {
       onDone: (result) => {
+        if (result.quit) {
+          const tip = result.correct * 80;
+          state.money += tip;
+          game.toast(tip > 0 ? `提早打烊，收了 ${tip} 元` : "提早打烊，今天沒開張");
+          game.save();
+          return;
+        }
         const pay = 700 + result.correct * 80;
         state.money += pay;
         state.rep += 2;
@@ -197,6 +204,13 @@ function startShift(game, kind) {
   }
   game.openActivity(kind === "store" ? "store" : "drink", {
     onDone: (result) => {
+      if (result.quit) {
+        const tip = result.correct * 55;
+        game.state.money += tip;
+        game.toast(tip > 0 ? `提早下班，只領到 ${tip} 元` : "提早下班，這班不算");
+        game.save();
+        return;
+      }
       const pay = 420 + result.correct * 55;
       game.state.money += pay;
       game.state.shifts += 1;
@@ -616,10 +630,10 @@ export function createActivities(canvas) {
     return { menu, orders, index: 0, correct: 0, left: 4.2, done: false, pay: 0 };
   }
 
-  function finish() {
+  function finish(quit = false) {
     if (!data || data.done) return;
     data.done = true;
-    const result = { pay: data.pay || 0, correct: data.correct || 0 };
+    const result = { pay: data.pay || 0, correct: data.correct || 0, quit };
     const cb = onDone;
     kind = null;
     onDone = null;
@@ -775,7 +789,7 @@ export function createActivities(canvas) {
         ctx.fillRect(28 + i * 190, 250, 170, 64);
         ctx.fillStyle = "#fff8ea";
         ctx.font = "22px sans-serif";
-        ctx.fillText(`${i + 1}. ${name}`, 44, 290);
+        ctx.fillText(`${i + 1}. ${name}`, 44 + i * 190, 290);
       });
     }
   }
@@ -806,7 +820,7 @@ export function createActivities(canvas) {
 
   return {
     open,
-    close: finish,
+    close: () => finish(true),
     active: () => !!kind,
     snapshot() {
       if (!kind || !data) return null;
